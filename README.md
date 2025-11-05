@@ -1,3 +1,5 @@
+THIS IS A COPY OF THE PyRocketCraft REPO
+
 PyRocketCraft
 -------------
 
