@@ -120,6 +120,9 @@ class RocketDynamics:
         target = np.zeros(self.state_dim)
         target[0] = 1.0
         target[9] = altitude_m
+        target[13] = 0.0
+        target[14] = 0.0
+        target[15] = 0.0
         return target
 
     def state_derivative(

@@ -20,29 +20,51 @@ from .rocket_dynamics import RocketDynamics
 
 @dataclass
 class LQRTrackerConfig:
-    dt_sec: float = 1.0 / 20.0
+    dt_sec: float = 1.0 / 40.0
     state_cost_diag: np.ndarray = field(
-        default_factory=lambda: np.concatenate(
+        default_factory=lambda: np.array(
             [
-                np.ones(4) * 25.0,
-                np.ones(3) * 5.0,
-                np.ones(3) * 1.0,
-                np.ones(3) * 4.0,
-                np.ones(3),
+                20.0,
+                20.0,
+                20.0,
+                20.0,
+                60.0,
+                60.0,
+                10.0,
+                5.0,
+                5.0,
+                15.0,
+                20.0,
+                20.0,
+                40.0,
+                20.0,
+                20.0,
+                20.0,
             ]
         )
     )
     control_cost_diag: np.ndarray = field(
-        default_factory=lambda: np.array([0.5, 2.0, 2.0, 0.5, 0.5])
+        default_factory=lambda: np.array([80.0, 80.0, 80.0, 150.0, 150.0])
     )
     terminal_cost_diag: np.ndarray = field(
-        default_factory=lambda: np.concatenate(
+        default_factory=lambda: np.array(
             [
-                np.ones(4) * 60.0,
-                np.ones(3) * 10.0,
-                np.ones(3) * 3.0,
-                np.ones(3) * 8.0,
-                np.ones(3) * 3.0,
+                80.0,
+                80.0,
+                80.0,
+                80.0,
+                150.0,
+                150.0,
+                15.0,
+                10.0,
+                10.0,
+                25.0,
+                30.0,
+                30.0,
+                80.0,
+                40.0,
+                40.0,
+                40.0,
             ]
         )
     )
@@ -75,7 +97,7 @@ class LQRTracker:
         dt_seq = np.diff(time_grid, prepend=time_grid[0])
         for i in range(states.shape[0]):
             A_c, B_c = self.dynamics.linearize(states[i], controls[i], time_grid[i])
-            dt = max(dt_seq[i], 1e-3)
+            dt = max(min(dt_seq[i], self.config.dt_sec), 1e-3)
             A_d = np.eye(self.dynamics.state_dim) + A_c * dt
             B_d = B_c * dt
             A_seq.append(A_d)
