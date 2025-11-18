@@ -13,6 +13,7 @@ from gymnasium import spaces
 import pybullet as p
 import pybullet_data
 from geodetic_toolbox import quat_from_rpy, quat_to_matrix, quat_to_rpy, quat_invert
+from scipy.interpolate import CubicSpline
 
 class SimRocketEnv(gym.Env):
     """
@@ -49,6 +50,8 @@ class SimRocketEnv(gym.Env):
         self.THRUST_MAX_ANGLE = np.deg2rad(10.0)
         self.ATT_MAX_THRUST = 50.0 # attitude thruster: max. thrust in Newton
         self.GRAVITY = 9.81 # assume we want to land on Earth
+        self.AIR_DENSITY = 1.225 # kg/m^3 at sea level
+        self.Cd = 0.47 # Approx Cd for a cylinder
         self.mass_kg = -99999999.9 # will be loaded and updated from URDF
         self.MIN_GROUND_DIST_M = 2.45 # shut off engine below this altitude
         # OFFSET between CoG and nozzle. Is there a way to get this from URDF?
@@ -67,8 +70,13 @@ class SimRocketEnv(gym.Env):
         self.thrust_current_N = 0.0 # Thrust in Newton
         self.thrust_alpha = 0.0 # Thrust deflection angle alpha in [rad]
         self.thrust_beta = 0    # Thrust deflection angle beta in [rad]
+        self.rand_drag_vel_mag = np.random.uniform(-100.0, 100.0) # choose initial mag of wind
+        self.rand_drag_dir_roll = np.random.uniform(0.0,np.pi)
+        self.rand_drag_dir_pitch = np.random.uniform(0.0,np.pi)
+        self.rand_drag_dir_yaw = np.random.uniform(0.0,np.pi) # get angles of rand wind
+        self.init_height = 0.0 # will update with self.pos_n initialization
         # </state vector config>
-        self.roll_deg= 0.0    # helper: mirror attitude in euler angles
+        self.roll_deg = 0.0    # helper: mirror attitude in euler angles
         self.pitch_deg = 0.0
         self.yaw_deg = 0.0
         # initialize state of the vehicle with the actual values
@@ -87,6 +95,71 @@ class SimRocketEnv(gym.Env):
                                             high=np.float32(obs_hi),
                                             dtype=np.float32)
 
+    def print_urdf(self, body):
+        """
+        Helper function to output URDF model information.
+        """
+        # Run this with your env instance available (uses self.CLIENT and self.pybullet_body)
+        body = self.pybullet_body
+        print("pybullet body id:", body)
+
+        n_joints = p.getNumJoints(body, physicsClientId=self.CLIENT)
+        print("num joints:", n_joints)
+
+        for i in range(n_joints):
+            info = p.getJointInfo(body, i, physicsClientId=self.CLIENT)
+            # info fields: (jointIndex, name, type, qIndex, uIndex, flags, jointDamp, jointFric, jointLowerLimit, jointUpperLimit, ...)
+            name = info[1].decode() if isinstance(info[1], bytes) else info[1]
+            jtype = info[2]
+            parent = info[16]
+            print(f"joint {i}: name={name} type={jtype} parent={parent}")
+            dyn = p.getDynamicsInfo(body, i, physicsClientId=self.CLIENT)
+            print(f"  mass={dyn[0]}, localInertiaPos={dyn[3]}")
+
+        # base link dynamics
+        base_dyn = p.getDynamicsInfo(body, -1, physicsClientId=self.CLIENT)
+        print("base mass:", base_dyn[0])
+
+        # visual/collision info
+        print("visuals:", p.getVisualShapeData(body, physicsClientId=self.CLIENT))
+
+        # world pose and base velocity
+        print("base pose:", p.getBasePositionAndOrientation(body, physicsClientId=self.CLIENT))
+        print("base velocity:", p.getBaseVelocity(body, physicsClientId=self.CLIENT))
+
+    def line_projections_z_aligned(self, L, roll_deg, pitch_deg, yaw_deg):
+        """
+        Helper function to convert vehicle length and roll/pitch/yaw to projected
+        lengths for drag calcs.
+        """
+        phi = np.radians(roll_deg)
+        theta = np.radians(pitch_deg)
+        psi = np.radians(yaw_deg)
+
+        cphi, sphi = np.cos(phi), np.sin(phi)
+        ct, st = np.cos(theta), np.sin(theta)
+        cpsi, spsi = np.cos(psi), np.sin(psi)
+
+        Lx = L * (-cpsi*st*cphi + spsi*sphi)
+        Ly = L * (-spsi*st*cphi - cpsi*sphi)
+        Lz = L * (ct*cphi)
+        return Lx, Ly, Lz
+
+    import numpy as np
+    
+
+    def random_beta_sample(self, a, b, alpha_range=(1.0, 9.0), beta_range=(1.0, 9.0)):
+        """
+        Generates a random number in [a,b] from a Beta distribution
+        with randomly chosen alpha and beta.
+
+        """
+        alpha = np.random.uniform(*alpha_range)
+        beta_param = np.random.uniform(*beta_range)
+        
+        x = np.random.beta(alpha, beta_param)
+        return a + (b - a) * x
+    
     def _pybullet_setup_environment(self):
         """
         Connect to pybullet environment.
@@ -101,8 +174,7 @@ class SimRocketEnv(gym.Env):
             print("\033[33mpybullet physics active.\033[0m")
             self.CLIENT = p.connect(p.GUI)
         else:
-            self.CLIENT = p.connect(p.DIRECT)
-
+            self.CLIENT = p.connect(p.DIRECT)        
     def reset(self, seed=14, options={}) -> float:
         """
         Gym interface. Reset the simulation.
@@ -112,9 +184,13 @@ class SimRocketEnv(gym.Env):
 
         self.engine_on = True
         # <state>
+        # SETTING RANDOM INITIAL POSITION
         self.pos_n = np.array([np.random.uniform(-50.0, 50.0),
                                np.random.uniform(-50.0, 50.0),
-                               np.random.uniform( 30.0, 60.0)]) # ENU
+                               np.random.uniform( 60.0, 100.0)]) # ENU
+        self.init_height = self.pos_n[2]
+        
+
         self.vel_n = np.array([np.random.uniform( -8.0,  8.0),
                                np.random.uniform( -8.0,  8.0),
                                np.random.uniform(-15.0,  5.0)]) * self.scale_obs_space # ENU
@@ -134,7 +210,7 @@ class SimRocketEnv(gym.Env):
 
         roll_rate_rps  = np.deg2rad(np.random.uniform(-5.0, 5.0)) * self.scale_obs_space
         pitch_rate_rps = np.deg2rad(np.random.uniform(-5.0, 5.0)) * self.scale_obs_space
-        yaw_rate_rps   = 0.0
+        yaw_rate_rps   = 0.
         self.omega     = np.array([roll_rate_rps,
                                    pitch_rate_rps,
                                    yaw_rate_rps])
@@ -154,6 +230,8 @@ class SimRocketEnv(gym.Env):
 
         self._pybullet_reset_environment()
         return self.state, {}
+
+
 
     def _pybullet_reset_environment(self):
         """
@@ -187,7 +265,21 @@ class SimRocketEnv(gym.Env):
         self.pybullet_body = p.loadURDF(self.urdf_file,
                                         initial_position_enu,
                                         physicsClientId=self.CLIENT)
+        
+        # print_urdf(self.pybullet_body) # uncomment to output URDF model info
+
+        # compute and store model length (z-extent) from URDF
+        try:
+            self.model_length, self.model_zmin, self.model_zmax, self.model_avg_cyl_radius = self._compute_urdf_length(self.urdf_file)
+            print(f"model length (z-extent): {self.model_length:.3f} m  (zmin={self.model_zmin:.3f}, zmax={self.model_zmax:.3f}) avg_cyl_radius={self.model_avg_cyl_radius:.4f} m")
+        except Exception as e:
+            print("failed to compute model length from URDF:", e)
+            self.model_length = None
+            self.model_avg_cyl_radius = None
         self.pybullet_booster_index = -1
+
+        self.cg_loc = self.model_length * 0.35 # approx. CoG location from base
+
 
         q_rosbody_to_enu = self.q
         # pybullet needs the scalar part at the end of the quaternion:
@@ -258,6 +350,73 @@ class SimRocketEnv(gym.Env):
                                  posObj=[0, 0, self.ATT_THRUSTER_OFFSET],
                                  flags=p.LINK_FRAME,
                                  physicsClientId=self.CLIENT)
+            
+            # STANDARD DRAG FROM X/Y/Z DIRS
+            curr_vel = self.vel_n
+            vel_x, vel_y, vel_z = curr_vel
+
+            # print(self.model_length)
+            # print(self.roll_deg, self.pitch_deg, self.yaw_deg)
+            # print("VELOCITIES:", vel_x, vel_y, vel_z)
+            Lx, Ly, Lz = self.line_projections_z_aligned(self.model_length, self.roll_deg, self.pitch_deg, self.yaw_deg)
+            # print("PROJECTIONS:", Lx, Ly, Lz)
+            Ax = Lx * 2.0 * self.model_avg_cyl_radius
+            Ay = Ly * 2.0 * self.model_avg_cyl_radius
+            Az = Lz * 2.0 * self.model_avg_cyl_radius
+            # print("AREAS:", Ax, Ay, Az)
+
+            drag_x = 1/2 * self.AIR_DENSITY * self.Cd * Ax * (vel_x**2)
+            drag_y = 1/2 * self.AIR_DENSITY * self.Cd * Ay * (vel_y**2)
+            drag_z = 1/2 * self.AIR_DENSITY * self.Cd * Az * (vel_z**2)
+
+            # print("DRAGS:", drag_x, drag_y, drag_z)
+
+            p.applyExternalForce(objectUniqueId=self.pybullet_body,
+                                 linkIndex=self.pybullet_booster_index,
+                                 forceObj=[drag_x, drag_y, drag_z],
+                                 posObj=[0, 0, 0],
+                                 flags=p.LINK_FRAME,
+                                 physicsClientId=self.CLIENT)
+            
+            # RANDOM DRAG BURSTS
+            rand_drag_vel_x, rand_drag_vel_y, rand_drag_vel_z = self.line_projections_z_aligned(self.rand_drag_vel_mag, 
+                                                                                             self.rand_drag_dir_roll,
+                                                                                             self.rand_drag_dir_pitch, 
+                                                                                             self.rand_drag_dir_yaw) 
+            
+            Lx_rand, Ly_rand, Lz_rand = self.line_projections_z_aligned(self.model_length, 
+                                                        self.rand_drag_dir_roll,
+                                                        self.rand_drag_dir_pitch, 
+                                                        self.rand_drag_dir_yaw) 
+            Ax_rand = Lx_rand * 2.0 * self.model_avg_cyl_radius
+            Ay_rand = Ly_rand * 2.0 * self.model_avg_cyl_radius
+            Az_rand = Lz_rand * 2.0 * self.model_avg_cyl_radius
+
+            height_scalar = self.pos_n[2] / self.init_height
+            
+            rand_drag_x = 1/2 * self.AIR_DENSITY * self.Cd * Ax_rand * (rand_drag_vel_x**2) * height_scalar/2.0
+            rand_drag_y = 1/2 * self.AIR_DENSITY * self.Cd * Ay_rand * (rand_drag_vel_y**2) * height_scalar/2.0
+            rand_drag_z = 1/2 * self.AIR_DENSITY * self.Cd * Az_rand * (rand_drag_vel_z**2) * height_scalar/2.0
+
+            p.applyExternalForce(objectUniqueId=self.pybullet_body,
+                                 linkIndex=self.pybullet_booster_index,
+                                 forceObj=[rand_drag_x, rand_drag_y, rand_drag_z],
+                                 posObj=[0, 0, 0],
+                                 flags=p.LINK_FRAME,
+                                 physicsClientId=self.CLIENT)
+            
+            vel_mag_step = self.random_beta_sample(-0.1,0.1)
+            rand_roll_step = self.random_beta_sample(-0.1,0.1)
+            rand_pitch_step = self.random_beta_sample(-0.1,0.1)
+            rand_yaw_step = self.random_beta_sample(-0.1,0.1)
+
+            self.rand_drag_vel_mag += vel_mag_step
+            self.rand_drag_dir_roll += rand_roll_step
+            self.rand_drag_dir_pitch += rand_pitch_step
+            self.rand_drag_dir_yaw += rand_yaw_step
+
+            print("RANDOM DRAG VEL MAG:", self.rand_drag_vel_mag)
+            print("RANDOM DRAG DIRS (roll,pitch,yaw):", self.rand_drag_dir_roll, self.rand_drag_dir_pitch, self.rand_drag_dir_yaw)
 
             p.stepSimulation(physicsClientId=self.CLIENT)
             self.pybullet_time_sec += self.PYBULLET_DT_SEC
@@ -490,3 +649,143 @@ class SimRocketEnv(gym.Env):
                                             physicsClientId=self.CLIENT)[0]
 
         return total_mass
+    
+    def _compute_urdf_length(self, urdf_path):
+        """
+        Parse URDF and compute z-extent (max_z - min_z) and average cylinder radius.
+        Returns (length_m, zmin, zmax, avg_cylinder_radius).
+        This version prefers the collision tag (where your URDF stores radius).
+        """
+        import xml.etree.ElementTree as ET
+        from collections import deque
+
+        def parse_xyz(attr):
+            if attr is None:
+                return np.zeros(3)
+            return np.array([float(x) for x in attr.split()])
+
+        def rpy_to_rot(roll, pitch, yaw):
+            cr, sr = np.cos(roll), np.sin(roll)
+            cp, sp = np.cos(pitch), np.sin(pitch)
+            cy, sy = np.cos(yaw), np.sin(yaw)
+            Rx = np.array([[1,0,0],[0,cr,-sr],[0,sr,cr]])
+            Ry = np.array([[cp,0,sp],[0,1,0],[-sp,0,cp]])
+            Rz = np.array([[cy,-sy,0],[sy,cy,0],[0,0,1]])
+            return Rz @ Ry @ Rx
+
+        def get_geom_info(link_elem):
+            # prefer collision (your URDF stores cylinder radius there), then visual, then inertial
+            for tag in ("collision", "visual", "inertial"):
+                g = link_elem.find(tag)
+                if g is None:
+                    continue
+                origin = g.find("origin")
+                geom = g.find("geometry")
+                if geom is None:
+                    continue
+                ox = parse_xyz(origin.get("xyz") if origin is not None else None)
+                orpy = parse_xyz(origin.get("rpy") if origin is not None else None)
+
+                cyl = geom.find("cylinder")
+                if cyl is not None:
+                    length = float(cyl.get("length")) if cyl.get("length") is not None else 0.0
+                    # URDF standard attribute is "radius"
+                    radius_attr = cyl.get("radius")
+                    radius = float(radius_attr) if radius_attr is not None else None
+                    return ("cylinder", ox, orpy, {"length": length, "radius": radius})
+
+                box = geom.find("box")
+                if box is not None:
+                    size = np.array([float(x) for x in box.get("size").split()])
+                    return ("box", ox, orpy, {"size": size})
+
+                sph = geom.find("sphere")
+                if sph is not None:
+                    r = float(sph.get("radius"))
+                    return ("sphere", ox, orpy, {"r": r})
+
+            return (None, np.zeros(3), np.zeros(3), {})
+
+        tree = ET.parse(urdf_path)
+        root = tree.getroot()
+        links = {ln.get("name"): ln for ln in root.findall("link")}
+
+        # build parent->children map and find root link
+        children_map = {}
+        child_set = set()
+        for j in root.findall("joint"):
+            parent = j.find("parent").get("link")
+            child = j.find("child").get("link")
+            origin = j.find("origin")
+            xyz = parse_xyz(origin.get("xyz") if origin is not None else None)
+            rpy = parse_xyz(origin.get("rpy") if origin is not None else None)
+            children_map.setdefault(parent, []).append((child, xyz, rpy))
+            child_set.add(child)
+
+        root_link = None
+        for name in links:
+            if name not in child_set:
+                root_link = name
+                break
+        if root_link is None:
+            raise RuntimeError("could not determine root link in URDF")
+
+        # BFS compute global pose for each link
+        link_pose = {root_link: (np.zeros(3), np.eye(3))}
+        q = deque([root_link])
+        while q:
+            parent = q.popleft()
+            p_pos, p_rot = link_pose[parent]
+            for (child, j_xyz, j_rpy) in children_map.get(parent, []):
+                Rj = rpy_to_rot(j_rpy[0], j_rpy[1], j_rpy[2])
+                child_pos = p_pos + p_rot @ j_xyz
+                child_rot = p_rot @ Rj
+                link_pose[child] = (child_pos, child_rot)
+                q.append(child)
+
+        z_min = float("inf")
+        z_max = float("-inf")
+        cylinder_radii = []
+
+        for lname, link in links.items():
+            gtype, g_origin, g_rpy, gmeta = get_geom_info(link)
+            if gtype is None:
+                continue
+
+            # collect explicit radius from geometry (collision preferred above)
+            if gtype == "cylinder" and gmeta.get("radius") is not None:
+                try:
+                    cylinder_radii.append(float(gmeta["radius"]))
+                except Exception:
+                    pass
+
+            link_pos, link_rot = link_pose.get(lname, (np.zeros(3), np.eye(3)))
+            Rg = link_rot @ rpy_to_rot(g_rpy[0], g_rpy[1], g_rpy[2])
+            g_center = link_pos + link_rot @ g_origin
+
+            if gtype == "cylinder":
+                L = gmeta.get("length", 0.0)
+                p_plus = g_center + Rg @ np.array([0,0, L/2.0])
+                p_minus = g_center + Rg @ np.array([0,0,-L/2.0])
+                z_min = min(z_min, p_plus[2], p_minus[2])
+                z_max = max(z_max, p_plus[2], p_minus[2])
+            elif gtype == "box":
+                sx, sy, sz = gmeta["size"]
+                for sx_sign in (-0.5, 0.5):
+                    for sy_sign in (-0.5, 0.5):
+                        for sz_sign in (-0.5, 0.5):
+                            local = np.array([sx_sign*sx, sy_sign*sy, sz_sign*sz])
+                            pnt = g_center + Rg @ local
+                            z_min = min(z_min, pnt[2])
+                            z_max = max(z_max, pnt[2])
+            elif gtype == "sphere":
+                r = gmeta["r"]
+                z_min = min(z_min, g_center[2] - r)
+                z_max = max(z_max, g_center[2] + r)
+
+        if z_min == float("inf"):
+            raise RuntimeError("no geometries found in URDF")
+
+        avg_radius = float(np.mean(cylinder_radii)) if len(cylinder_radii) > 0 else 0.0
+        return float(z_max - z_min), float(z_min), float(z_max), avg_radius
+
