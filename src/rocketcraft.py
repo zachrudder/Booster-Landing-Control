@@ -13,7 +13,6 @@ import numpy as np
 
 from simrocketenv import SimRocketEnv
 from mpcpolicy import MPCPolicy
-from pscpolicy import PSCPolicy
 
 # Global messagebox to exchange data between threads
 g_thread_msgbox = {
@@ -40,7 +39,6 @@ def ctrl_thread_func(initial_state):
     # -------------------`----------
 
     policy = MPCPolicy(initial_state)
-    # policy = PSCPolicy(initial_state)
 
     print("Active policy: %s" % (policy.get_name()))
 
