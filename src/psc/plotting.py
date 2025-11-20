@@ -20,10 +20,12 @@ def plot_trajectory(ts: np.ndarray, xs: np.ndarray, us: np.ndarray) -> None:
     east = interp1d(ts, xs[:, 7], kind="cubic")(t_uniform)
     north = interp1d(ts, xs[:, 8], kind="cubic")(t_uniform)
     up = interp1d(ts, xs[:, 9], kind="cubic")(t_uniform)
-    east -= east[-1]
-    north -= north[-1]
-    up -= up[-1]
+    east -= east[0]
+    north -= north[0]
+    up -= up[0]
     ax.plot(east, north, up, label="Trajectory")
+    ax.scatter(0.0, 0.0, 0.0, color="g", marker="o", label="Start")
+    ax.scatter(east[-1], north[-1], up[-1], color="r", marker="*", label="End")
 
     step = max(1, len(ts) // 30)
     # Thrust vectors disabled for clarity; re-enable if needed.

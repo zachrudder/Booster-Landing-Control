@@ -39,8 +39,8 @@ def ctrl_thread_func(initial_state):
     # Switch between policies here:
     # -------------------`----------
 
-    # policy = MPCPolicy(initial_state)
-    policy = PSCTVLQRPolicy(initial_state)
+    policy = MPCPolicy(initial_state)
+    # policy = PSCTVLQRPolicy(initial_state)
 
     print("Active policy: %s" % (policy.get_name()))
 

@@ -25,7 +25,7 @@ class PSCTVLQRPolicy(BaseControl):
         Tf: float = 3.0,
         N: int = 40,
         replan_interval_steps: int = 80,
-        show_plot: bool = True,
+        show_plot: bool = False,
     ):
         super().__init__()
 
