@@ -17,7 +17,7 @@
 # Later you can add TVLQR around this nominal trajectory.
 
 import numpy as np
-from casadi import MX, vertcat, Function, nlpsol
+from casadi import MX, vertcat, Function, nlpsol, jacobian
 
 from basecontrol import BaseControl
 from mpc.rocket_model import export_rocket_ode_model
@@ -118,8 +118,11 @@ class PSCTVLQRPolicy(BaseControl):
       - For now, ignores 'observation' (pure open-loop execution).
     """
 
-    def __init__(self, initial_state, time_horizon=3.0, N_nodes=40, hover=False):
+    def __init__(self, initial_state, time_horizon=3.0, N_nodes=40, hover=False, use_tvlqr=False):
         super().__init__()
+
+        # flag to turn on LQR
+        self.use_tvlqr = use_tvlqr
 
         # keep correct time
         self.ctrl_dt = 1.0 / 100.0  # must match CTRL_DT_SEC in rocket_craft
@@ -163,6 +166,15 @@ class PSCTVLQRPolicy(BaseControl):
         # CasADi Function: f(x,u) -> xdot
         self.f_fun = Function('f_fun', [x_sym, u_sym], [f_expl])
 
+        # ----------------------------------------------------------
+        # Linearization: A = ∂f/∂x, B = ∂f/∂u  (continuous-time)
+        # ----------------------------------------------------------
+        A_sym = jacobian(f_expl, x_sym)   # (nx, nx)
+        B_sym = jacobian(f_expl, u_sym)   # (nx, nu)
+        self.A_fun = Function('A_fun', [x_sym, u_sym], [A_sym])
+        self.B_fun = Function('B_fun', [x_sym, u_sym], [B_sym])
+
+
         # ---------------------------------
         # Reference / setpoint (like MPC)
         # ---------------------------------
@@ -181,10 +193,33 @@ class PSCTVLQRPolicy(BaseControl):
             self.x_ref = self.x0.copy()
             self.x_ref[0] = 1.0 
 
+        # ------------------------------------------------------------------
+        # Debug: print initial state and reference / goal state for PSC
+        # ------------------------------------------------------------------
+        print("\n[PSC] Initial state from ENV (x0):")
+        print("  q      =", self.x0[0:4])
+        print("  omega  =", self.x0[4:7])
+        print("  pos    =", self.x0[7:10])
+        print("  vel    =", self.x0[10:13])
+        print("  thrust =", self.x0[13])
+        print("  t_alpha, t_beta =", self.x0[14], self.x0[15])
+
+        print("\n[PSC] Reference / goal state (x_ref):")
+        print("  q_ref      =", self.x_ref[0:4])
+        print("  omega_ref  =", self.x_ref[4:7])
+        print("  pos_ref    =", self.x_ref[7:10])
+        print("  vel_ref    =", self.x_ref[10:13])
+        print("  thrust_ref =", self.x_ref[13] if self.x_ref.shape[0] > 13 else None)
+        print("  t_alpha_ref, t_beta_ref =",
+              self.x_ref[14] if self.x_ref.shape[0] > 14 else None,
+              self.x_ref[15] if self.x_ref.shape[0] > 15 else None)
+        print("-----------------------------------------------------\n")
+
+
         # For controls, we'll just encourage them to stay small around 0.
         if not hover:
             self.u_ref = np.zeros(self.nu)
-            self.R = np.diag(np.ones(self.nu) * 10.0)         # (nu,nu) smaller than MPC for now
+            # self.R = np.diag(np.ones(self.nu) * 10.0)         # (nu,nu) smaller than MPC for now
         else:
             # approximate hover thrust fraction
             THRUST_MAX_N = 1800.0   # same as in rocket_model
@@ -196,10 +231,18 @@ class PSCTVLQRPolicy(BaseControl):
             self.u_ref = np.zeros(self.nu)
             self.u_ref[0] = u_hover    # we want thrust around hover
 
-            self.R = np.diag([1000.0, 1000.0, 1000.0, 1000.0, 1000.0])
+        self.R = np.diag([1000.0, 10.0, 10.0, 100.0, 100.0])
 
         # Cost weights (same as MPC for state, simple R for control)
         self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
+        self.Q[7, 7] = 100.0            # pos E
+        self.Q[8, 8] = 100.0            # pos N
+        self.Q[9, 9] = 100.0            # pos U
+        self.Q[10, 10] = 100.0          # vel E
+        self.Q[11, 11] = 100.0          # vel N
+        self.Q[12, 12] = 100.0          # vel U
+        self.Q[14, 14] = 100.0         # thrust alpha
+        self.Q[15, 15] = 100.0         # thrust beta
         
 
         # --------------------------------
@@ -215,8 +258,16 @@ class PSCTVLQRPolicy(BaseControl):
         # Internal index for playback of open-loop trajectory
         self.current_step = 0
 
+        # ------------------------------------------------------
+        # Optional: build time-varying LQR around nominal traj
+        # ------------------------------------------------------
+        self.K_seq = None
+        if self.use_tvlqr:
+            self._build_tvlqr()
+
+
     def get_name(self):
-        return "PSC+TVLQR (PSC only for now)"
+        return "PSC+TVLQR" if self.use_tvlqr else "PSC"
 
     def _build_psc_nlp(self, initial_state):
         """
@@ -356,12 +407,16 @@ class PSCTVLQRPolicy(BaseControl):
         u_offset = X_size  # where U starts in z
 
         # Bounds per control component
-        # u_min = np.array([0.20, -1.0, -1.0, -1.0, -1.0])
-        # u_max = np.array([1.00,  1.0,  1.0,  1.0,  1.0])
+        u_min = np.array([0.20, -1.0, -1.0, -1.0, -1.0])
+        u_max = np.array([1.00,  1.0,  1.0,  1.0,  1.0])
 
         # Disable attitude thrusters u[3] and u[4]
-        u_min = np.array([0.20, -1.0, -1.0, 0.0, 0.0])
-        u_max = np.array([1.00,  1.0,  1.0, 0.0, 0.0])
+        # u_min = np.array([0.20, -1.0, -1.0, 0.0, 0.0])
+        # u_max = np.array([1.00,  1.0,  1.0, 0.0, 0.0])
+
+        # limit range of bounds
+        # u_min = np.array([0.20, -0.5, -0.5, -0.5, -0.5])
+        # u_max = np.array([1.00,  0.5,  0.5,  0.5,  0.5])
 
 
         for i in range(self.Np1):
@@ -443,7 +498,7 @@ class PSCTVLQRPolicy(BaseControl):
         print("[PSC] IPOPT status:", status)
 
         # Accept only clearly successful outcomes
-        ok_statuses = ["Solve_Succeeded", "Optimal Solution Found"]
+        ok_statuses = ["Solve_Succeeded", "Optimal Solution Found", "Solved_To_Acceptable_Level"]
         if not any(s in status for s in ok_statuses):
             print("[PSC] WARNING: NLP did NOT converge to a feasible optimum.")
             # Fallback: trivial hover-like trajectory
@@ -460,6 +515,10 @@ class PSCTVLQRPolicy(BaseControl):
 
         self.X_opt = X_flat.reshape((self.nx, Np1), order='F')
         self.U_opt = U_flat.reshape((self.nu, Np1), order='F')
+
+        # for plotting
+        self.last_X_traj = self.X_opt
+        self.last_U_traj = self.U_opt
 
         # Optional: print basic info
         print("[PSC] NLP solved. Final cost J =", float(sol["f"]))
@@ -513,31 +572,100 @@ class PSCTVLQRPolicy(BaseControl):
             max_res = max(max_res, np.linalg.norm(res_i, ord=np.inf))
 
         print(f"[PSC] Max collocation residual ||dX/dτ - (Tf/2)f||_∞ = {max_res:.3e}")
+    
+    def _build_tvlqr(self):
+        """
+        Build a discrete-time time-varying LQR (TVLQR) along the PSC trajectory.
+
+        We linearize the continuous dynamics around each nominal (x_i, u_i):
+            xdot = f(x,u)
+            A_i = ∂f/∂x |_(x_i,u_i)
+            B_i = ∂f/∂u |_(x_i,u_i)
+
+        Then approximate a discrete system over step h = Tf/N:
+            x_{k+1} ≈ A_d x_k + B_d u_k
+            A_d = I + A_i * h
+            B_d = B_i * h
+
+        and run a backward Riccati recursion with (Q, R) to get K_k.
+        """
+
+        if not hasattr(self, "X_opt") or not hasattr(self, "U_opt"):
+            print("[TVLQR] No nominal trajectory available; skipping TVLQR.")
+            self.K_seq = None
+            return
+
+        nx = self.nx
+        nu = self.nu
+        Np1 = self.Np1   # number of nodes = N+1
+        N = self.N
+
+        # Time step used for discrete approximation in LQR
+        h = self.Tf / float(self.N)
+
+        # Stage cost matrices
+        Q = self.Q
+        R = self.R
+
+        # Precompute linearizations A_i, B_i at each node
+        A_seq = []
+        B_seq = []
+        for i in range(Np1):
+            x_i = self.X_opt[:, i]
+            u_i = self.U_opt[:, i]
+
+            A_i = np.array(self.A_fun(x_i, u_i)).astype(float)
+            B_i = np.array(self.B_fun(x_i, u_i)).astype(float)
+
+            A_seq.append(A_i)
+            B_seq.append(B_i)
+
+        # Backward Riccati recursion
+        K_seq = [np.zeros((nu, nx)) for _ in range(Np1)]
+
+        # Terminal cost: you can tweak this (e.g. 10*Q)
+        P = Q.copy()
+
+        for i in reversed(range(N)):
+            A = A_seq[i]
+            B = B_seq[i]
+
+            # Discretize
+            A_d = np.eye(nx) + A * h
+            B_d = B * h
+
+            # Riccati step
+            S = R + B_d.T @ P @ B_d
+            # K_i: (nu, nx)
+            K_i = np.linalg.solve(S, B_d.T @ P @ A_d)
+            K_seq[i] = K_i
+
+            # P update
+            P = Q + A_d.T @ (P - P @ B_d @ np.linalg.solve(S, B_d.T @ P)) @ A_d
+
+        # For the last node, just reuse K_{N-1}
+        K_seq[N] = K_seq[N - 1].copy()
+
+        self.K_seq = K_seq
+        print(f"[TVLQR] Built time-varying LQR gains for {Np1} nodes.")
+
 
     def next(self, observation):
         """
-        Return open-loop control from the precomputed PSC trajectory.
+        Return control from the PSC trajectory, with optional TVLQR tracking.
 
         Parameters
         ----------
         observation : np.ndarray
-            Current state (ignored for now).
+            Current state (16,) from the environment.
 
         Returns
         -------
         u : np.ndarray  shape = (nu,)
-            Control at current time step, taken from U_opt.
+            Control at current time step.
         predictedX : np.ndarray shape = (5, nx)
-            Simple preview of the next 5 states on the nominal trajectory.
+            Simple preview of the next 5 nominal states on the trajectory.
         """
-        # Map "current_step" to a node index on the PSC trajectory.
-        # The control loop in rocket_craft runs at ~100 Hz.
-        # Our trajectory is defined at N+1 points over [0, Tf].
-        #
-        # For simplicity here:
-        #   - We just iterate one node per call until we reach the end.
-        #   - When we reach the last node, we hold its control.
-        #
 
         # Advance time
         self.t_elapsed += self.ctrl_dt
@@ -545,14 +673,32 @@ class PSCTVLQRPolicy(BaseControl):
             self.t_elapsed = self.Tf
 
         # Map current time to a node index
-        # Simple linear mapping: t in [0,Tf] -> i in [0,N]
         alpha = self.t_elapsed / self.Tf
         i_float = alpha * self.N
         idx = int(np.clip(np.round(i_float), 0, self.N))
 
-        u = np.array(self.U_opt[:, idx]).flatten()
+        # Nominal control and state from PSC
+        u_nom = np.array(self.U_opt[:, idx]).flatten()
+        x_nom = np.array(self.X_opt[:, idx]).flatten()
 
-        # Build preview of nominal states
+        # Default: open-loop PSC
+        u = u_nom.copy()
+
+        # If TVLQR is enabled, use it as a tracking law
+        if self.use_tvlqr and (self.K_seq is not None):
+            x = np.asarray(observation).flatten()
+            K = self.K_seq[idx]          # (nu, nx)
+            x_err = x - x_nom            # state deviation
+
+            delta_u = -K @ x_err         # (nu,)
+            u = u_nom + delta_u
+
+        # Safety: enforce the same input bounds as the NLP
+        # Main thrust in [0.20, 1.00], others in [-1, 1]
+        u[0] = np.clip(u[0], 0.20, 1.0)
+        u[1:] = np.clip(u[1:], -1.0, 1.0)
+
+        # Build preview of nominal states (unchanged)
         NUM_PRED_EPOCHS = 5
         predictedX = np.zeros((NUM_PRED_EPOCHS, self.nx))
         for k in range(NUM_PRED_EPOCHS):
@@ -560,4 +706,59 @@ class PSCTVLQRPolicy(BaseControl):
             predictedX[k, :] = np.array(self.X_opt[:, j]).flatten()
 
         return u, predictedX
+
+    
+    def debug_plot_collocation_nodes(self):
+        """
+        Visualize the Chebyshev–Lobatto collocation nodes and optional
+        positions along the PSC trajectory (if solved).
+
+        - self.tau: nodes in [-1, 1]
+        - self.t_grid: corresponding physical times in [0, Tf]
+        - self.X_opt (if available): states at those nodes
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        # 1) Plot τ nodes (Chebyshev–Lobatto on [-1, 1])
+        fig, axs = plt.subplots(1, 2, figsize=(12, 4))
+
+        ax = axs[0]
+        ax.plot(self.tau, 'o-')
+        ax.set_xlabel("Node index i")
+        ax.set_ylabel(r"$\tau_i$ (dimensionless)")
+        ax.set_title("Chebyshev–Lobatto nodes in $[-1, 1]$")
+        ax.grid(True)
+
+        # 2) Plot corresponding time grid t in [0, Tf]
+        ax = axs[1]
+        ax.plot(self.t_grid, 'o-')
+        ax.set_xlabel("Node index i")
+        ax.set_ylabel("t_i [s]")
+        ax.set_title(f"Collocation nodes in time [0, {self.Tf:.2f}]")
+        ax.grid(True)
+
+        plt.tight_layout()
+        plt.show()
+
+        # 3) Optional: if we have a solved trajectory, plot altitude vs time
+        if hasattr(self, "X_opt"):
+            pos_E = self.X_opt[7, :]   # East
+            pos_N = self.X_opt[8, :]   # North
+            pos_U = self.X_opt[9, :]   # Up
+
+            fig = plt.figure(figsize=(6, 5))
+            ax3 = fig.add_subplot(111, projection="3d")
+            sc = ax3.scatter(pos_E, pos_N, pos_U, c=self.t_grid,
+                            cmap="viridis", s=40)
+
+            ax3.set_xlabel("East (m)")
+            ax3.set_ylabel("North (m)")
+            ax3.set_zlabel("Up (m)")
+            ax3.set_title("Trajectory at collocation nodes\n(color = time)")
+            fig.colorbar(sc, ax=ax3, label="t [s]")
+
+            plt.tight_layout()
+            plt.show()
+
 

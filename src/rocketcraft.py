@@ -41,7 +41,7 @@ def ctrl_thread_func(initial_state):
     # print("Initial state passed to PSC:", initial_state)
 
     # policy = MPCPolicy(initial_state)
-    policy = PSCTVLQRPolicy(initial_state, time_horizon=3.0, N_nodes=40, hover=False)
+    policy = PSCTVLQRPolicy(initial_state, time_horizon=5.0, N_nodes=40, hover=False, use_tvlqr=True)
 
     print("Active policy: %s" % (policy.get_name()))
 
