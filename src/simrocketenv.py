@@ -43,7 +43,7 @@ class SimRocketEnv(gym.Env):
         self.UMAX =  1.0 # max. control input for thrust (= 100%)
         self.ACTUATORCOUNT = 5 # main thrust, 2x thrust vector, 2x attitude
         self.THRUST_UMIN = 0.2 # min. control input for main thrust
-        self.THRUST_MAX_N = 1500.0 # max. thrust in Newton from main engine
+        self.THRUST_MAX_N = 1800.0 # max. thrust in Newton from main engine
         self.THRUST_TAU = 2.5 # PT1 first order delay in thrust response
         self.THRUST_VECTOR_TAU = 0.3
         self.THRUST_MAX_ANGLE = np.deg2rad(10.0)

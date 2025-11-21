@@ -38,9 +38,10 @@ def ctrl_thread_func(initial_state):
 
     # Switch between policies here:
     # -------------------`----------
+    # print("Initial state passed to PSC:", initial_state)
 
-    policy = MPCPolicy(initial_state)
-    # policy = PSCTVLQRPolicy(initial_state)
+    # policy = MPCPolicy(initial_state)
+    policy = PSCTVLQRPolicy(initial_state, time_horizon=3.0, N_nodes=40, hover=False)
 
     print("Active policy: %s" % (policy.get_name()))
 
@@ -82,6 +83,8 @@ def main():
     env = SimRocketEnv(interactive=True)
     g_thread_msgbox['state'] = env.state # publish state vector
     u = None # control input / action
+    # print("Initial state from ENV:", env.state)
+
 
     # Spawn NMPC thread (doing the control work)
     nmpc_thread = threading.Thread(
