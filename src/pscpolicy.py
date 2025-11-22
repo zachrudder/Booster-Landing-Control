@@ -231,36 +231,44 @@ class PSCTVLQRPolicy(BaseControl):
             self.u_ref = np.zeros(self.nu)
             self.u_ref[0] = u_hover    # we want thrust around hover
 
-        self.R = np.diag([1000.0, 10.0, 10.0, 100.0, 100.0])
+        self.R = np.diag([10.0, 500.0, 500.0, 1000.0, 1000.0])
 
         # Cost weights (same as MPC for state, simple R for control)
         self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
+
+        self.Q[0, 0] = 6.0              # quaternion
+        self.Q[1, 1] = 6.0
+        self.Q[2, 2] = 6.0
+        self.Q[3, 3] = 6.0
+
+        self.Q[4, 4] = 80.1             # angular X
+        self.Q[5, 5] = 80.1             # angular Y
+        self.Q[6, 6] = 0.5              # angular Z
+
         self.Q[7, 7] = 100.0            # pos E
         self.Q[8, 8] = 100.0            # pos N
         self.Q[9, 9] = 100.0            # pos U
+
         self.Q[10, 10] = 100.0          # vel E
         self.Q[11, 11] = 100.0          # vel N
         self.Q[12, 12] = 100.0          # vel U
-        self.Q[14, 14] = 100.0         # thrust alpha
-        self.Q[15, 15] = 100.0         # thrust beta
+
+        self.Q[13, 13] = 0.0            # thrust
+        self.Q[14, 14] = 10.0           # thrust alpha
+        self.Q[15, 15] = 10.0           # thrust beta
         
 
-        # --------------------------------
-        # Build the PSC NLP in CasADi (MX)
-        # --------------------------------
+
+        # Build the PSC NLP in CasADi
         self._build_psc_nlp(initial_state)
 
-        # --------------------
         # Solve NLP (offline)
-        # --------------------
         self._solve_nlp()
 
         # Internal index for playback of open-loop trajectory
         self.current_step = 0
 
-        # ------------------------------------------------------
-        # Optional: build time-varying LQR around nominal traj
-        # ------------------------------------------------------
+        # build TVLQR around the trajectory
         self.K_seq = None
         if self.use_tvlqr:
             self._build_tvlqr()
@@ -407,12 +415,12 @@ class PSCTVLQRPolicy(BaseControl):
         u_offset = X_size  # where U starts in z
 
         # Bounds per control component
-        u_min = np.array([0.20, -1.0, -1.0, -1.0, -1.0])
-        u_max = np.array([1.00,  1.0,  1.0,  1.0,  1.0])
+        # u_min = np.array([0.20, -1.0, -1.0, -1.0, -1.0])
+        # u_max = np.array([1.00,  1.0,  1.0,  1.0,  1.0])
 
         # Disable attitude thrusters u[3] and u[4]
-        # u_min = np.array([0.20, -1.0, -1.0, 0.0, 0.0])
-        # u_max = np.array([1.00,  1.0,  1.0, 0.0, 0.0])
+        u_min = np.array([0.20, -1.0, -1.0, 0.0, 0.0])
+        u_max = np.array([1.00,  1.0,  1.0, 0.0, 0.0])
 
         # limit range of bounds
         # u_min = np.array([0.20, -0.5, -0.5, -0.5, -0.5])
@@ -604,8 +612,15 @@ class PSCTVLQRPolicy(BaseControl):
         h = self.Tf / float(self.N)
 
         # Stage cost matrices
-        Q = self.Q
-        R = self.R
+        Q_tvlqr = np.eye(nx)
+
+        Q_tvlqr[0:4, 0:4] *= 10.0      # quaternion error
+        Q_tvlqr[4:7, 4:7] *= 10.0      # angular rates
+        Q_tvlqr[7:10, 7:10] *= 5.0     # position
+        Q_tvlqr[10:13, 10:13] *= 5.0   # velocity
+        Q_tvlqr[13:, 13:] *= 1.0        # thrust, beta, alpha
+
+        R_tvlqr = np.eye(nu) * 10.0
 
         # Precompute linearizations A_i, B_i at each node
         A_seq = []
@@ -624,7 +639,7 @@ class PSCTVLQRPolicy(BaseControl):
         K_seq = [np.zeros((nu, nx)) for _ in range(Np1)]
 
         # Terminal cost: you can tweak this (e.g. 10*Q)
-        P = Q.copy()
+        P = Q_tvlqr.copy()
 
         for i in reversed(range(N)):
             A = A_seq[i]
@@ -635,13 +650,13 @@ class PSCTVLQRPolicy(BaseControl):
             B_d = B * h
 
             # Riccati step
-            S = R + B_d.T @ P @ B_d
+            S = R_tvlqr + B_d.T @ P @ B_d
             # K_i: (nu, nx)
             K_i = np.linalg.solve(S, B_d.T @ P @ A_d)
             K_seq[i] = K_i
 
             # P update
-            P = Q + A_d.T @ (P - P @ B_d @ np.linalg.solve(S, B_d.T @ P)) @ A_d
+            P = Q_tvlqr + A_d.T @ (P - P @ B_d @ np.linalg.solve(S, B_d.T @ P)) @ A_d
 
         # For the last node, just reuse K_{N-1}
         K_seq[N] = K_seq[N - 1].copy()
@@ -673,9 +688,14 @@ class PSCTVLQRPolicy(BaseControl):
             self.t_elapsed = self.Tf
 
         # Map current time to a node index
-        alpha = self.t_elapsed / self.Tf
-        i_float = alpha * self.N
-        idx = int(np.clip(np.round(i_float), 0, self.N))
+        # alpha = self.t_elapsed / self.Tf
+        # i_float = alpha * self.N
+        # idx = int(np.clip(np.round(i_float), 0, self.N))
+
+        # alternate method
+        idx = np.searchsorted(self.t_grid, self.t_elapsed, side="left")
+        idx = int(np.clip(idx, 0, self.N))
+
 
         # Nominal control and state from PSC
         u_nom = np.array(self.U_opt[:, idx]).flatten()
@@ -692,6 +712,20 @@ class PSCTVLQRPolicy(BaseControl):
 
             delta_u = -K @ x_err         # (nu,)
             u = u_nom + delta_u
+            
+            # Debug: first few timesteps
+            if self.t_elapsed < 0.1:
+                print("[TVLQR] ACTIVE at idx", idx)
+                print("  ||x_err|| =", np.linalg.norm(x_err))
+                print("  u_nom     =", u_nom)
+                print("  delta_u   =", delta_u)
+                print("  u_total   =", u)
+
+        else:
+            if self.t_elapsed < 0.1:
+                print("[TVLQR] NOT active. use_tvlqr=",
+                    getattr(self, "use_tvlqr", None),
+                    "K_seq is None" if not hasattr(self, "K_seq") or self.K_seq is None else "K_seq set")
 
         # Safety: enforce the same input bounds as the NLP
         # Main thrust in [0.20, 1.00], others in [-1, 1]

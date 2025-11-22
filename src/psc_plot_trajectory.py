@@ -202,3 +202,57 @@ def plot_trajectory_3d_with_orientation_and_thrust(X_traj):
     ax.legend()
     plt.tight_layout()
     plt.show()
+
+
+
+def plot_u_vs_time(U, t=None, Tf=None, title="Control inputs vs time"):
+    """
+    Plot control inputs u_i(t).
+
+    Parameters
+    ----------
+    U : array-like
+        Control trajectory. Shape can be either:
+          - (nu, Np1)  (controls x time)
+          - (Np1, nu)  (time x controls)
+    t : array-like, optional
+        Time stamps for each column of U. Shape (Np1,).
+        If None, a uniform grid in [0, Tf] (or [0,1] if Tf is None) is used.
+    Tf : float, optional
+        Final time, only used if t is None. Default is 1.0.
+    title : str
+        Title for the plot.
+    """
+    U = np.asarray(U)
+    if U.ndim != 2:
+        raise ValueError("U must be 2D, got shape {}".format(U.shape))
+
+    # Make sure U has shape (nu, Np1)
+    if U.shape[0] < U.shape[1]:
+        nu, Np1 = U.shape
+    else:
+        # assume (Np1, nu), transpose
+        Np1, nu = U.shape
+        U = U.T
+
+    # Time vector
+    if t is None:
+        if Tf is None:
+            Tf = 1.0
+        t = np.linspace(0.0, Tf, Np1)
+    else:
+        t = np.asarray(t)
+        if t.shape[0] != Np1:
+            raise ValueError(f"t has length {t.shape[0]}, but U has {Np1} time steps")
+
+    plt.figure(figsize=(8, 5))
+    for i in range(nu):
+        plt.plot(t, U[i, :], label=f"u[{i}]")
+
+    plt.xlabel("time [s]")
+    plt.ylabel("control input")
+    plt.title(title)
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
