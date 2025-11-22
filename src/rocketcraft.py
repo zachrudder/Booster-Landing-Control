@@ -140,7 +140,7 @@ def main():
             last_fps_update = timestamp_current
             sim_step_counter = 0
             env.print_state()
-            print("Main thrust: %3.0f%% Thrust Vector alpha: %4.0f%% beta: %4.0f%% ATT_X: %3.0f%% ATT_Y: %3.0f%%" % (u[0]*100.0, u[1]*100.0, u[2]*100.0, u[3]*100.0, u[4]*100.0))
+            print("Main thrust: %3.0f%% Thrust Vector alpha: %4.0f%% beta: %4.0f%%" % (u[0]*100.0, u[1]*100.0, u[2]*100.0)) #, u[3]*100.0, u[4]*100.0))
 
         # Terminate episode?
         if done is True:

@@ -58,8 +58,8 @@ class MPCPolicy(BaseControl):
         # BGH: Comprises simple bounds, polytopic constraints, general
         # non-linear constraints.
         self.ocp.constraints.constr_type = 'BGH'
-        self.ocp.constraints.lbu = np.array([ 0.20, -1.0, -1.0, -1.0, -1.0 ])
-        self.ocp.constraints.ubu = np.array([ 1.00,  1.0,  1.0,  1.0,  1.0 ])
+        self.ocp.constraints.lbu = np.array([ 0.20, -1.0, -1.0 ]) #, -1.0, -1.0 ])
+        self.ocp.constraints.ubu = np.array([ 1.00,  1.0,  1.0 ])#,  1.0,  1.0 ])
         self.ocp.constraints.x0 = initial_state
         self.ocp.constraints.idxbu = np.array(range(self.nu))
 

@@ -19,7 +19,7 @@ def export_rocket_ode_model() -> AcadosModel:
     J_33 = 1.55   # Up
 
     THRUST_MAX_N = 1800.0 # 8500.0
-    THRUST_TAU = 2.5
+    THRUST_TAU = 0.3
     THRUST_VECTOR_TAU = 0.3
     THRUST_MAX_ANGLE = np.deg2rad(10.0)
     ATT_MAX_THRUST = 50.0
@@ -93,7 +93,7 @@ def export_rocket_ode_model() -> AcadosModel:
     weight_diag[12] = 25.0  # vertical velocity
 
     # Control input u
-    u = SX.sym('u', 5, 1) # thrust (0 to 1), alpha (-1 to 1), beta (-1 to 1), att_x_thrust, att_y_thrust
+    u = SX.sym('u', 3, 1) # thrust (0 to 1), alpha (-1 to 1), beta (-1 to 1), att_x_thrust, att_y_thrust
 
     # System Dynamics
     # ---------------
@@ -122,11 +122,11 @@ def export_rocket_ode_model() -> AcadosModel:
     thrust_body[1] = thrust*t_beta
     thrust_body[2] = thrust
 
-    att_x_thrust = SX.sym('att_x_thrust', 3, 1)
-    att_x_thrust[0] = u[3] * ATT_MAX_THRUST
-    att_x_thrust[1] = u[4] * ATT_MAX_THRUST
-    att_x_thrust[2] = 0.0
-    tau_v = booster_pos_cross @ thrust_body + att_x_booster_pos_cross @ att_x_thrust
+    # att_x_thrust = SX.sym('att_x_thrust', 3, 1)
+    # att_x_thrust[0] = u[3] * ATT_MAX_THRUST
+    # att_x_thrust[1] = u[4] * ATT_MAX_THRUST
+    # att_x_thrust[2] = 0.0
+    tau_v = booster_pos_cross @ thrust_body # + att_x_booster_pos_cross @ att_x_thrust
 
     thrust_dot_eq  = (THRUST_MAX_N*u[0] - thrust)/THRUST_TAU
     t_alpha_dot_eq = (THRUST_MAX_ANGLE*u[1] - t_alpha)/THRUST_VECTOR_TAU

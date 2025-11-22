@@ -24,6 +24,9 @@ class SimRocketEnv(gym.Env):
     def __init__(self, interactive=False, scale_obs_space=1.0):
         print("PyRocketCraft")
         self.pybullet_initialized = False
+            
+        self.attitude_control_on = False # set to True to allow attitude control thrusters
+
         self.interactive = interactive
         self.reset_count = 0 # keep track of calls to reset() function
         self.time_sec = 0.0 # keep track of simulation time
@@ -42,10 +45,19 @@ class SimRocketEnv(gym.Env):
         self.urdf_file = "./src/modelrocket.urdf"
         self.UMIN = -1.0 # min. control input
         self.UMAX =  1.0 # max. control input for thrust (= 100%)
-        self.ACTUATORCOUNT = 5 # main thrust, 2x thrust vector, 2x attitude
-        self.THRUST_UMIN = 0.2 # min. control input for main thrust
+        if self.attitude_control_on:
+            self.ACTUATORCOUNT = 5 # main thrust, 2x thrust vector, 2x attitude
+        else: 
+            self.ACTUATORCOUNT = 3 # main thrust, 2x thrust vector
+        
+        self.INITIAL_FUEL = 7.5 # initial fuel mass, kg
+        self.TOTAL_FUEL = self.INITIAL_FUEL # fuel mass, kg
+        self.ISP = 200.0 # specific impulse, seconds
+        self.fuel_consumed_kg = 0.0 # fuel consumed in last step
+
+        self.THRUST_UMIN = 0.0 # min. control input for main thrust
         self.THRUST_MAX_N = 1500.0 # max. thrust in Newton from main engine
-        self.THRUST_TAU = 2.5 # PT1 first order delay in thrust response
+        self.THRUST_TAU = 0.3 # PT1 first order delay in thrust response, originally 2.5, made 0.3 for better response
         self.THRUST_VECTOR_TAU = 0.3
         self.THRUST_MAX_ANGLE = np.deg2rad(10.0)
         self.ATT_MAX_THRUST = 50.0 # attitude thruster: max. thrust in Newton
@@ -53,7 +65,7 @@ class SimRocketEnv(gym.Env):
         self.AIR_DENSITY = 1.225 # kg/m^3 at sea level
         self.Cd = 0.47 # Approx Cd for a cylinder
         self.mass_kg = -99999999.9 # will be loaded and updated from URDF
-        self.MIN_GROUND_DIST_M = 2.45 # shut off engine below this altitude
+        self.MIN_GROUND_DIST_M = 2.4 # shut off engine below this altitude
         # OFFSET between CoG and nozzle. Is there a way to get this from URDF?
         self.NOZZLE_OFFSET = -2.0
         self.ATT_THRUSTER_OFFSET = 2.0
@@ -70,7 +82,7 @@ class SimRocketEnv(gym.Env):
         self.thrust_current_N = 0.0 # Thrust in Newton
         self.thrust_alpha = 0.0 # Thrust deflection angle alpha in [rad]
         self.thrust_beta = 0    # Thrust deflection angle beta in [rad]
-        self.rand_drag_vel_mag = np.random.uniform(-100.0, 100.0) # choose initial mag of wind
+        self.rand_drag_vel_mag = np.random.uniform(-50.0, 50.0) # choose initial mag of wind
         self.rand_drag_dir_roll = np.random.uniform(0.0,np.pi)
         self.rand_drag_dir_pitch = np.random.uniform(0.0,np.pi)
         self.rand_drag_dir_yaw = np.random.uniform(0.0,np.pi) # get angles of rand wind
@@ -187,7 +199,7 @@ class SimRocketEnv(gym.Env):
         # SETTING RANDOM INITIAL POSITION
         self.pos_n = np.array([np.random.uniform(-50.0, 50.0),
                                np.random.uniform(-50.0, 50.0),
-                               np.random.uniform( 60.0, 100.0)]) # ENU
+                               np.random.uniform( 180.0, 220.0)]) # ENU
         self.init_height = self.pos_n[2]
         
 
@@ -199,8 +211,8 @@ class SimRocketEnv(gym.Env):
         # the quaternion (self.q) and roll_deg, pitch_deg and yaw_deg will be updated
         # based on the quaternion. But here for initialization the Euler angles are
         # used to initialize the orientation (Euler angles are a bit more readable)
-        self.roll_deg  = np.random.uniform(-10.0, 10.0) * self.scale_obs_space
-        self.pitch_deg = np.random.uniform(-10.0, 10.0) * self.scale_obs_space
+        self.roll_deg  = np.random.uniform(60.0, 180.0) * self.scale_obs_space
+        self.pitch_deg = np.random.uniform(-30.0, 30.0) * self.scale_obs_space
         self.yaw_deg   = 0.0
         # Attitude quaternion (transforming from body to navigation system
         # Careful: quaternion order: qw, qx,qy,qz (qw is the real part)
@@ -215,9 +227,13 @@ class SimRocketEnv(gym.Env):
                                    pitch_rate_rps,
                                    yaw_rate_rps])
 
-        self.thrust_current_N = np.random.uniform(0.65, 0.75) * self.THRUST_MAX_N
+        self.thrust_current_N = 0.0 # set initial thrust to 0.0 #np.random.uniform(0.65, 0.75) * self.THRUST_MAX_N
         self.thrust_alpha = 0.0 # 0 means no deflection of thrust vectoring
         self.thrust_beta = 0.0
+
+        self.last_fuel = self.TOTAL_FUEL
+        self.TOTAL_FUEL = self.INITIAL_FUEL
+
         # </state>
         self._update_state() # create/update state vector
 
@@ -333,23 +349,29 @@ class SimRocketEnv(gym.Env):
                                1.0]) * self.thrust_current_N # z up
 
             # Add force of rocket boost to pybullet simulation
-            if self.engine_on:
+            if self.engine_on and self.TOTAL_FUEL > 0.0:
                 p.applyExternalForce(objectUniqueId=self.pybullet_body,
                                      linkIndex=self.pybullet_booster_index,
                                      forceObj=[thrust[0], thrust[1], thrust[2]],
                                      posObj=[0, 0, self.NOZZLE_OFFSET],
                                      flags=p.LINK_FRAME,
                                      physicsClientId=self.CLIENT)
+                thrust_mag = np.linalg.norm(thrust)
+                m_dot = thrust_mag / (self.ISP * self.GRAVITY) # mass flow rate
+                self.fuel_consumed_kg = m_dot * self.PYBULLET_DT_SEC
+                self.TOTAL_FUEL -= self.fuel_consumed_kg
+                # print("FUEL LEFT:", self.TOTAL_FUEL)
 
             # attitude correction thruster
-            att_x_thrust = u[3] * self.ATT_MAX_THRUST # x forward
-            att_y_thrust = u[4] * self.ATT_MAX_THRUST # y left
-            p.applyExternalForce(objectUniqueId=self.pybullet_body,
-                                 linkIndex=self.pybullet_booster_index,
-                                 forceObj=[att_x_thrust, att_y_thrust, 0.0],
-                                 posObj=[0, 0, self.ATT_THRUSTER_OFFSET],
-                                 flags=p.LINK_FRAME,
-                                 physicsClientId=self.CLIENT)
+            if self.attitude_control_on:
+                att_x_thrust = u[3] * self.ATT_MAX_THRUST # x forward
+                att_y_thrust = u[4] * self.ATT_MAX_THRUST # y left
+                p.applyExternalForce(objectUniqueId=self.pybullet_body,
+                                    linkIndex=self.pybullet_booster_index,
+                                    forceObj=[att_x_thrust, att_y_thrust, 0.0],
+                                    posObj=[0, 0, self.ATT_THRUSTER_OFFSET],
+                                    flags=p.LINK_FRAME,
+                                    physicsClientId=self.CLIENT)
             
             # STANDARD DRAG FROM X/Y/Z DIRS
             curr_vel = self.vel_n
@@ -390,17 +412,17 @@ class SimRocketEnv(gym.Env):
                                                         self.rand_drag_dir_yaw) 
             Ax_rand = Lx_rand * 2.0 * self.model_avg_cyl_radius
             Ay_rand = Ly_rand * 2.0 * self.model_avg_cyl_radius
-            Az_rand = Lz_rand * 2.0 * self.model_avg_cyl_radius
+            # Az_rand = Lz_rand * 2.0 * self.model_avg_cyl_radius
 
             height_scalar = self.pos_n[2] / self.init_height
             
-            rand_drag_x = 1/2 * self.AIR_DENSITY * self.Cd * Ax_rand * (rand_drag_vel_x**2) * height_scalar/2.0
-            rand_drag_y = 1/2 * self.AIR_DENSITY * self.Cd * Ay_rand * (rand_drag_vel_y**2) * height_scalar/2.0
-            rand_drag_z = 1/2 * self.AIR_DENSITY * self.Cd * Az_rand * (rand_drag_vel_z**2) * height_scalar/2.0
+            rand_drag_x = 1/2 * self.AIR_DENSITY * self.Cd * Ax_rand * (rand_drag_vel_x**2) * height_scalar**2
+            rand_drag_y = 1/2 * self.AIR_DENSITY * self.Cd * Ay_rand * (rand_drag_vel_y**2) * height_scalar**2
+            # rand_drag_z = 1/2 * self.AIR_DENSITY * self.Cd * Az_rand * (rand_drag_vel_z**2) * height_scalar**2
 
             p.applyExternalForce(objectUniqueId=self.pybullet_body,
                                  linkIndex=self.pybullet_booster_index,
-                                 forceObj=[rand_drag_x, rand_drag_y, rand_drag_z],
+                                 forceObj=[rand_drag_x, rand_drag_y, 0.0],
                                  posObj=[0, 0, 0],
                                  flags=p.LINK_FRAME,
                                  physicsClientId=self.CLIENT)
@@ -415,8 +437,8 @@ class SimRocketEnv(gym.Env):
             self.rand_drag_dir_pitch += rand_pitch_step
             self.rand_drag_dir_yaw += rand_yaw_step
 
-            print("RANDOM DRAG VEL MAG:", self.rand_drag_vel_mag)
-            print("RANDOM DRAG DIRS (roll,pitch,yaw):", self.rand_drag_dir_roll, self.rand_drag_dir_pitch, self.rand_drag_dir_yaw)
+            # print("RANDOM DRAG VEL MAG:", self.rand_drag_vel_mag)
+            # print("RANDOM DRAG DIRS (roll,pitch,yaw):", self.rand_drag_dir_roll, self.rand_drag_dir_pitch, self.rand_drag_dir_yaw)
 
             p.stepSimulation(physicsClientId=self.CLIENT)
             self.pybullet_time_sec += self.PYBULLET_DT_SEC
@@ -524,7 +546,8 @@ class SimRocketEnv(gym.Env):
         :return state (state vector), reward (score), done (simulation done?)
         """
 
-        action = np.clip(action, self.UMIN, self.UMAX)
+        action[1] = np.clip(action[1], self.UMIN, self.UMAX)
+        action[2] = np.clip(action[2], self.UMIN, self.UMAX)
         action[0] = np.clip(action[0], self.THRUST_UMIN, self.UMAX) # thrust has a different limit
 
         done = False
@@ -583,21 +606,63 @@ class SimRocketEnv(gym.Env):
         """
         # Constants for reward calculation - these may need tuning
         POSITION_WEIGHT = 1.0
-        VELOCITY_WEIGHT = 1.0
+        VELOCITY_WEIGHT = 1.5
         ORIENTATION_WEIGHT = 1.0
+        FUEL_WEIGHT = 1.0
         MAX_POS_REWARD = 50.0   # Maximum reward for position
         MAX_VEL_REWARD = 50.0   # Maximum reward for velocity
         MAX_ORI_REWARD = 2.0    # Maximum reward for orientation (cos(0) + cos(0))
+        MAX_FUEL_REWARD = 50.0  # Maximum reward for fuel use
+
+        max_fuel_used_per_step = (self.THRUST_MAX_N / (self.ISP * self.GRAVITY)) * self.dt_sec
+        fuel_used_ratio = self.fuel_consumed_kg / max_fuel_used_per_step
+        fuel_used_ratio = np.clip(fuel_used_ratio, 0.0, 1.0)
+
+        # fuel_remaining_ratio = self.TOTAL_FUEL / self.INITIAL_FUEL
+
+        # Thrust reward
+        current_thrust = self.thrust_current_N
+
+        cutoff_alt_ratio = 0.1 # above -> fuel reward is high for high fuel and high for low vel, below -> opposite
+        # Altitude ratio (1.0 at start, 0.0 at ground) for velocity and fuel rewards
+        altitude_ratio = max(0.0, min(1.0, self.pos_n[2] / self.init_height))
 
         # Calculate the negative distance from the target position (0,0,0)
         target_pos = np.array([0, 0, 0])
         distance = np.linalg.norm(self.pos_n - target_pos)
         distance_reward = MAX_POS_REWARD - POSITION_WEIGHT * distance
 
-        # Calculate the negative velocity magnitude
+        # magnitude of velocity
         velocity_magnitude = np.linalg.norm(self.vel_n)
-        velocity_reward = MAX_VEL_REWARD - VELOCITY_WEIGHT * velocity_magnitude
+        
+        if altitude_ratio > cutoff_alt_ratio:
+            # === HIGH ALTITUDE ===
+            # Reward Falling, Reward SAVING fuel
+            
+            # Downward velocity is good (positive reward)
+            velocity_reward = VELOCITY_WEIGHT * (-self.vel_n[2])
+            # print("VELOCITY Z:", self.vel_n[2])
+            # print("VEL REWARD HIGH ALT:", velocity_reward)
+            
+            # Low thrust is good
+            thrust_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (1.0 - current_thrust / self.THRUST_MAX_N)
 
+            # Low fuel used is good
+            fuel_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (1.0 - fuel_used_ratio)
+                    
+        else:
+            # === LOW ALTITUDE ===
+            # Reward Stopping, Reward BURNING fuel
+            
+            # Low velocity magnitude is good
+            velocity_reward = MAX_VEL_REWARD - (VELOCITY_WEIGHT * velocity_magnitude)
+            
+            # High thrust is good. (1.0 usage = Max Reward)
+            thrust_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (current_thrust / self.THRUST_MAX_N)
+
+            fuel_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (fuel_used_ratio)
+
+        # print("FUEL REWARD: ", fuel_reward)
         # Calculate orientation reward
         # Converting degrees to radians for cosine calculation
         roll_rad = np.radians(self.roll_deg)
@@ -608,12 +673,16 @@ class SimRocketEnv(gym.Env):
         normalized_distance_reward = distance_reward / MAX_POS_REWARD
         normalized_velocity_reward = velocity_reward / MAX_VEL_REWARD
         normalized_orientation_reward = orientation_reward / MAX_ORI_REWARD
+        normalized_thrust_reward = thrust_reward / MAX_FUEL_REWARD
+        normalized_fuel_reward = fuel_reward / MAX_FUEL_REWARD
 
         # Total reward
         total_reward = 0.0
         total_reward += ( normalized_distance_reward
                         + normalized_velocity_reward
-                        + normalized_orientation_reward )
+                        + normalized_orientation_reward 
+                        + normalized_thrust_reward
+                        + normalized_fuel_reward )
         total_reward *= self.dt_sec # normalize
 
         # Shut off engine near the ground and give a huge reward bonus for
@@ -622,15 +691,20 @@ class SimRocketEnv(gym.Env):
             if self.engine_on is True:
                 self.engine_on = False
                 if self.interactive:
-                    print("Engine off at altitude: %.3f (AGL)" % (self.pos_n[2]))
+                    print("Engine off at altitude: %.3f (AGL)" % (self.pos_n[2]), " with velocity %.3f m/s" % velocity_magnitude, " and fuel left %.3f kg" % self.TOTAL_FUEL)
                 if np.abs(self.roll_deg) < 5.0:
                     total_reward += 128.0
                 if np.abs(self.pitch_deg) < 5.0:
                     total_reward += 256.0
                 if np.linalg.norm(self.omega) < np.deg2rad(7.0):
                     total_reward += 512.0
-                if velocity_magnitude < 2.0:
-                    total_reward += 1024.0
+                if velocity_magnitude < 0.25:
+                    total_reward += 3000.0
+                # Bonus for using most of the fuel
+                fuel_remaining_ratio = self.TOTAL_FUEL / self.INITIAL_FUEL
+                print("REMAINING FUEL RATIO: ", fuel_remaining_ratio)
+                if fuel_remaining_ratio < 0.05:  # less than 5% fuel remaining
+                    total_reward += 1000.0
 
         return total_reward
 
