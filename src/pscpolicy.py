@@ -17,6 +17,7 @@
 # Later you can add TVLQR around this nominal trajectory.
 
 import numpy as np
+import time
 from casadi import MX, vertcat, Function, nlpsol, jacobian
 
 from basecontrol import BaseControl
@@ -239,12 +240,14 @@ class PSCTVLQRPolicy(BaseControl):
         self.R = np.diag([10.0, 500.0, 500.0, 1000.0, 1000.0])
 
         # Cost weights (same as MPC for state, simple R for control)
-        self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
+        # self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
 
-        self.Q[0, 0] = 6.0              # quaternion
-        self.Q[1, 1] = 6.0
-        self.Q[2, 2] = 6.0
-        self.Q[3, 3] = 6.0
+        self.Q = np.eye(self.nx)
+
+        self.Q[0, 0] = 10.0              # quaternion
+        self.Q[1, 1] = 10.0
+        self.Q[2, 2] = 10.0
+        self.Q[3, 3] = 10.0
 
         self.Q[4, 4] = 80.1             # angular X
         self.Q[5, 5] = 80.1             # angular Y
@@ -254,9 +257,9 @@ class PSCTVLQRPolicy(BaseControl):
         self.Q[8, 8] = 100.0            # pos N
         self.Q[9, 9] = 100.0            # pos U
 
-        self.Q[10, 10] = 100.0          # vel E
-        self.Q[11, 11] = 100.0          # vel N
-        self.Q[12, 12] = 100.0          # vel U
+        self.Q[10, 10] = 200.0          # vel E
+        self.Q[11, 11] = 200.0          # vel N
+        self.Q[12, 12] = 200.0          # vel U
 
         self.Q[13, 13] = 0.0            # thrust
         self.Q[14, 14] = 10.0           # thrust alpha
@@ -628,13 +631,13 @@ class PSCTVLQRPolicy(BaseControl):
         Q_tvlqr[5, 5] = 5.0             # angular Y
         Q_tvlqr[6, 6] = 5.0             # angular Z
 
-        Q_tvlqr[7, 7] = 5.0            # pos E
-        Q_tvlqr[8, 8] = 5.0            # pos N
-        Q_tvlqr[9, 9] = 5.0            # pos U
+        Q_tvlqr[7, 7] = 10.0            # pos E
+        Q_tvlqr[8, 8] = 10.0            # pos N
+        Q_tvlqr[9, 9] = 10.0            # pos U
 
-        Q_tvlqr[10, 10] = 5.0          # vel E
-        Q_tvlqr[11, 11] = 5.0          # vel N
-        Q_tvlqr[12, 12] = 5.0          # vel U
+        Q_tvlqr[10, 10] = 10.0          # vel E
+        Q_tvlqr[11, 11] = 10.0          # vel N
+        Q_tvlqr[12, 12] = 10.0          # vel U
 
         Q_tvlqr[13, 13] = 0.0            # thrust
         Q_tvlqr[14, 14] = 0.0           # thrust alpha
@@ -674,7 +677,7 @@ class PSCTVLQRPolicy(BaseControl):
 
             # K_i: (nu, nx)
             K_i = np.linalg.solve(S, B_d.T @ P @ A_d)
-            K_i[3:, :] = 0.0    # disable attutude thrusters
+            K_i[3:, :] = 0.0    # disable attitude thrusters
             K_seq[i] = K_i
 
             # P update
@@ -710,13 +713,34 @@ class PSCTVLQRPolicy(BaseControl):
         #     self.t_elapsed = self.Tf
 
         # only advance the time when sim actually updates
-        if not hasattr(self, "_last_x_obs"):
-            self._last_x_obs = np.asarray(observation).copy()
+        # if not hasattr(self, "_last_x_obs"):
+        #     self._last_x_obs = np.asarray(observation).copy()
 
-        if np.linalg.norm(np.asarray(observation) - self._last_x_obs) > 1e-6:
-            # sim actually advanced
-            self.t_elapsed += self.ctrl_dt
-            self._last_x_obs = np.asarray(observation).copy()
+        # if np.linalg.norm(np.asarray(observation) - self._last_x_obs) > 1e-6:
+        #     # sim actually advanced
+        #     self.t_elapsed += self.ctrl_dt
+        #     self._last_x_obs = np.asarray(observation).copy()
+
+        # another try for fixing time
+        now = time.time()
+        if not hasattr(self, "_last_call"):
+            self._last_call = now
+            dt = 0.0
+        else:
+            dt = now - self._last_call
+            self._last_call = now
+
+        # Clamp dt so we don't jump far along the trajectory after a stall
+        # (sim thread also ignores huge dt_sec > 0.1)
+        if dt > 0.1:
+            dt = 0.0
+
+        # advance PSC time using ACTUAL dt
+        self.t_elapsed += dt
+
+        # Don't run past the end of the PSC horizon
+        if self.t_elapsed > self.Tf:
+            self.t_elapsed = self.Tf
 
 
         # Map current time to a node index
@@ -748,11 +772,11 @@ class PSCTVLQRPolicy(BaseControl):
             u = u_nom + delta_u
             
             # Debug: first few timesteps
-            if self.t_elapsed < 0.05:
-                print("[STATE DEBUG] idx", idx)
-                print("  x_obs  =", x)
-                print("  x_nom  =", x_nom)
-                print("  x_err  =", x_err)
+            # if self.t_elapsed < 0.05:
+            #     print("[STATE DEBUG] idx", idx)
+            #     print("  x_obs  =", x)
+            #     print("  x_nom  =", x_nom)
+            #     print("  x_err  =", x_err)
 
             if self.t_elapsed < 0.1:
                 print("[TVLQR] ACTIVE at idx", idx)

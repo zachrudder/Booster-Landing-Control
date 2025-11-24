@@ -67,8 +67,8 @@ def run_offline_psc_test():
     ])
 
 
-    state = initial_state_1
-    policy = PSCTVLQRPolicy(state, time_horizon=15.0, N_nodes=40, hover=False, use_tvlqr=True)
+    # state = initial_state_1
+    policy = PSCTVLQRPolicy(state, time_horizon=16.0, N_nodes=50, hover=False, use_tvlqr=True)
 
     # Use the same dt as PSC node spacing or something small like env.dt_sec
     T = policy.Tf

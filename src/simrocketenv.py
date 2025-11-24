@@ -50,7 +50,7 @@ class SimRocketEnv(gym.Env):
         self.ATT_MAX_THRUST = 50.0 # attitude thruster: max. thrust in Newton
         self.GRAVITY = 9.81 # assume we want to land on Earth
         self.mass_kg = -99999999.9 # will be loaded and updated from URDF
-        self.MIN_GROUND_DIST_M = 2.45 # shut off engine below this altitude
+        self.MIN_GROUND_DIST_M = 2.75 # shut off engine below this altitude
         # OFFSET between CoG and nozzle. Is there a way to get this from URDF?
         self.NOZZLE_OFFSET = -2.0
         self.ATT_THRUSTER_OFFSET = 2.0

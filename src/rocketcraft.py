@@ -42,7 +42,7 @@ def ctrl_thread_func(initial_state):
     
     
     # policy = MPCPolicy(initial_state)
-    policy = PSCTVLQRPolicy(initial_state, time_horizon=15.0, N_nodes=40, hover=False, use_tvlqr=True)
+    policy = PSCTVLQRPolicy(initial_state, time_horizon=16.0, N_nodes=50, hover=False, use_tvlqr=True)
 
     print("Active policy: %s" % (policy.get_name()))
 
@@ -135,11 +135,11 @@ def main():
         0.0, 0.0
     ])
 
-    g_thread_msgbox['state'] = initial_state_1
+    # g_thread_msgbox['state'] = initial_state_1
 
     # SimRocketEnv is handling the physics simulation
     env = SimRocketEnv(interactive=True)
-    # g_thread_msgbox['state'] = env.state # publish state vector
+    g_thread_msgbox['state'] = env.state # publish state vector
     u = None # control input / action
     # print("Initial state from ENV:", env.state)
 
