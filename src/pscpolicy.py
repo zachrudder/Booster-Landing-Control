@@ -125,7 +125,7 @@ class PSCTVLQRPolicy(BaseControl):
         self.use_tvlqr = use_tvlqr
 
         # keep correct time
-        self.ctrl_dt = 1.0 / 100.0  # must match CTRL_DT_SEC in rocket_craft
+        self.ctrl_dt = 1.0 / 120.0  # must match CTRL_DT_SEC in rocket_craft
         self.t_elapsed = 0.0
 
         # -------------
@@ -147,6 +147,11 @@ class PSCTVLQRPolicy(BaseControl):
         # tau: (N+1,) collocation nodes in [-1,1]
         # D:   (N+1, N+1) differentiation matrix in τ
         self.tau, self.D = chebyshev_lobatto_nodes_and_D(self.N)
+
+        # reverse so tau is [-1, 1] and D is increasing
+        self.tau = self.tau[::-1]
+        self.D   = self.D[::-1, ::-1]
+
 
         # quadrature weights for ∫_{-1}^1 g(τ) dτ
         self.w = trapezoidal_weights_on_nodes(self.tau)
@@ -614,13 +619,28 @@ class PSCTVLQRPolicy(BaseControl):
         # Stage cost matrices
         Q_tvlqr = np.eye(nx)
 
-        Q_tvlqr[0:4, 0:4] *= 10.0      # quaternion error
-        Q_tvlqr[4:7, 4:7] *= 10.0      # angular rates
-        Q_tvlqr[7:10, 7:10] *= 5.0     # position
-        Q_tvlqr[10:13, 10:13] *= 5.0   # velocity
-        Q_tvlqr[13:, 13:] *= 1.0        # thrust, beta, alpha
+        Q_tvlqr[0, 0] = 5.0              # quaternion
+        Q_tvlqr[1, 1] = 5.0
+        Q_tvlqr[2, 2] = 5.0
+        Q_tvlqr[3, 3] = 5.0
 
-        R_tvlqr = np.eye(nu) * 10.0
+        Q_tvlqr[4, 4] = 5.0            # angular X
+        Q_tvlqr[5, 5] = 5.0             # angular Y
+        Q_tvlqr[6, 6] = 5.0             # angular Z
+
+        Q_tvlqr[7, 7] = 5.0            # pos E
+        Q_tvlqr[8, 8] = 5.0            # pos N
+        Q_tvlqr[9, 9] = 5.0            # pos U
+
+        Q_tvlqr[10, 10] = 5.0          # vel E
+        Q_tvlqr[11, 11] = 5.0          # vel N
+        Q_tvlqr[12, 12] = 5.0          # vel U
+
+        Q_tvlqr[13, 13] = 0.0            # thrust
+        Q_tvlqr[14, 14] = 0.0           # thrust alpha
+        Q_tvlqr[15, 15] = 0.0           # thrust beta
+
+        R_tvlqr = np.eye(nu) * 1000.0
 
         # Precompute linearizations A_i, B_i at each node
         A_seq = []
@@ -651,8 +671,10 @@ class PSCTVLQRPolicy(BaseControl):
 
             # Riccati step
             S = R_tvlqr + B_d.T @ P @ B_d
+
             # K_i: (nu, nx)
             K_i = np.linalg.solve(S, B_d.T @ P @ A_d)
+            K_i[3:, :] = 0.0    # disable attutude thrusters
             K_seq[i] = K_i
 
             # P update
@@ -683,9 +705,19 @@ class PSCTVLQRPolicy(BaseControl):
         """
 
         # Advance time
-        self.t_elapsed += self.ctrl_dt
-        if self.t_elapsed > self.Tf:
-            self.t_elapsed = self.Tf
+        # self.t_elapsed += self.ctrl_dt
+        # if self.t_elapsed > self.Tf:
+        #     self.t_elapsed = self.Tf
+
+        # only advance the time when sim actually updates
+        if not hasattr(self, "_last_x_obs"):
+            self._last_x_obs = np.asarray(observation).copy()
+
+        if np.linalg.norm(np.asarray(observation) - self._last_x_obs) > 1e-6:
+            # sim actually advanced
+            self.t_elapsed += self.ctrl_dt
+            self._last_x_obs = np.asarray(observation).copy()
+
 
         # Map current time to a node index
         # alpha = self.t_elapsed / self.Tf
@@ -696,6 +728,8 @@ class PSCTVLQRPolicy(BaseControl):
         idx = np.searchsorted(self.t_grid, self.t_elapsed, side="left")
         idx = int(np.clip(idx, 0, self.N))
 
+        # debug
+        # print("t_grid[0], t_grid[-1] =", self.t_grid[0], self.t_grid[-1])
 
         # Nominal control and state from PSC
         u_nom = np.array(self.U_opt[:, idx]).flatten()
@@ -714,6 +748,12 @@ class PSCTVLQRPolicy(BaseControl):
             u = u_nom + delta_u
             
             # Debug: first few timesteps
+            if self.t_elapsed < 0.05:
+                print("[STATE DEBUG] idx", idx)
+                print("  x_obs  =", x)
+                print("  x_nom  =", x_nom)
+                print("  x_err  =", x_err)
+
             if self.t_elapsed < 0.1:
                 print("[TVLQR] ACTIVE at idx", idx)
                 print("  ||x_err|| =", np.linalg.norm(x_err))

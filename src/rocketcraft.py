@@ -39,6 +39,47 @@ def ctrl_thread_func(initial_state):
     # Switch between policies here:
     # -------------------`----------
     # print("Initial state passed to PSC:", initial_state)
+    
+    
+    # policy = MPCPolicy(initial_state)
+    policy = PSCTVLQRPolicy(initial_state, time_horizon=15.0, N_nodes=40, hover=False, use_tvlqr=True)
+
+    print("Active policy: %s" % (policy.get_name()))
+
+    # make sure a control algorithm update is performed in the first epoch
+    CTRL_DT_SEC = 1.0 / 100.0  # run the control law every XX ms
+    timestamp_last_ctrl_update = time.time() - 2*CTRL_DT_SEC
+    ctrl_fps_counter = 0  # +1 for every step, reset every 1 sec
+    timestamp_last_mpc_fps_update = time.time()
+
+    while g_sim_running:
+        timestamp_current = time.time()
+        if timestamp_current - timestamp_last_ctrl_update < CTRL_DT_SEC:
+            time.sleep(0)
+            continue
+
+        with g_thread_msgbox_lock:
+            state = copy.deepcopy(g_thread_msgbox['state'])
+            if timestamp_current - timestamp_last_mpc_fps_update >= 1.0:
+                g_thread_msgbox['ctrl_fps'] = ctrl_fps_counter
+                ctrl_fps_counter = 0
+                timestamp_last_mpc_fps_update = timestamp_current
+
+        u, predictedX = policy.next(state)
+
+        timestamp_last_ctrl_update = timestamp_current
+        ctrl_fps_counter += 1
+        with g_thread_msgbox_lock:
+            g_thread_msgbox['u'] = np.copy(u) # emit control vector u
+
+def main():
+    """
+      Entry point for the real-time simulation with GUI
+    """
+    global g_thread_msgbox
+    global g_thread_msgbox_lock
+    global g_sim_running
+
     initial_state_1 = np.array([
         # q: upright (no rotation)
         1.0, 0.0, 0.0, 0.0,
@@ -93,50 +134,12 @@ def ctrl_thread_func(initial_state):
         0.5 * 1800.0,                        # ~hover-ish thrust (rough)
         0.0, 0.0
     ])
-    
-    state = initial_state
-    # policy = MPCPolicy(initial_state)
-    policy = PSCTVLQRPolicy(state, time_horizon=15.0, N_nodes=40, hover=False, use_tvlqr=True)
 
-    print("Active policy: %s" % (policy.get_name()))
-
-    # make sure a control algorithm update is performed in the first epoch
-    CTRL_DT_SEC = 1.0 / 100.0  # run the control law every XX ms
-    timestamp_last_ctrl_update = time.time() - 2*CTRL_DT_SEC
-    ctrl_fps_counter = 0  # +1 for every step, reset every 1 sec
-    timestamp_last_mpc_fps_update = time.time()
-
-    while g_sim_running:
-        timestamp_current = time.time()
-        if timestamp_current - timestamp_last_ctrl_update < CTRL_DT_SEC:
-            time.sleep(0)
-            continue
-
-        with g_thread_msgbox_lock:
-            state = copy.deepcopy(g_thread_msgbox['state'])
-            if timestamp_current - timestamp_last_mpc_fps_update >= 1.0:
-                g_thread_msgbox['ctrl_fps'] = ctrl_fps_counter
-                ctrl_fps_counter = 0
-                timestamp_last_mpc_fps_update = timestamp_current
-
-        u, predictedX = policy.next(state)
-
-        timestamp_last_ctrl_update = timestamp_current
-        ctrl_fps_counter += 1
-        with g_thread_msgbox_lock:
-            g_thread_msgbox['u'] = np.copy(u) # emit control vector u
-
-def main():
-    """
-      Entry point for the real-time simulation with GUI
-    """
-    global g_thread_msgbox
-    global g_thread_msgbox_lock
-    global g_sim_running
+    g_thread_msgbox['state'] = initial_state_1
 
     # SimRocketEnv is handling the physics simulation
     env = SimRocketEnv(interactive=True)
-    g_thread_msgbox['state'] = env.state # publish state vector
+    # g_thread_msgbox['state'] = env.state # publish state vector
     u = None # control input / action
     # print("Initial state from ENV:", env.state)
 

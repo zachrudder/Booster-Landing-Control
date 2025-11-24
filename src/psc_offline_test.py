@@ -67,7 +67,7 @@ def run_offline_psc_test():
     ])
 
 
-    # state = initial_state_5
+    state = initial_state_1
     policy = PSCTVLQRPolicy(state, time_horizon=15.0, N_nodes=40, hover=False, use_tvlqr=True)
 
     # Use the same dt as PSC node spacing or something small like env.dt_sec
@@ -110,7 +110,7 @@ def run_offline_psc_test():
     plot_trajectory_3d_with_orientation_and_thrust(X_traj)
 
     # plot collocation points
-    # policy.debug_plot_collocation_nodes()
+    policy.debug_plot_collocation_nodes()
 
     # plot control inputs vs time
     U_traj = policy.last_U_traj
