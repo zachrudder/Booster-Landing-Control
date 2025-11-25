@@ -192,7 +192,7 @@ class PSCTVLQRPolicy(BaseControl):
         if not hover:
             x_ref = np.zeros(self.nx)
             x_ref[0] = 1.0   # q0
-            x_ref[9] = 2.0  # altitude index in state (see rocket_model)
+            x_ref[9] = 0.5  # altitude index in state (see rocket_model)
             self.x_ref = x_ref
         else:
             # Hover test
@@ -238,7 +238,7 @@ class PSCTVLQRPolicy(BaseControl):
             self.u_ref[0] = u_hover    # we want thrust around hover
 
         # self.R = np.diag([10.0, 500.0, 500.0, 1000.0, 1000.0])
-        self.R = np.diag([100.0, 750.0, 750.0, 100.0, 100.0])
+        self.R = np.diag([90.0, 750.0, 750.0, 100.0, 100.0])
 
         # Cost weights (same as MPC for state, simple R for control)
         self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
@@ -260,7 +260,7 @@ class PSCTVLQRPolicy(BaseControl):
 
         # self.Q[10, 10] = 10.0          # vel E
         # self.Q[11, 11] = 10.0          # vel N
-        # self.Q[12, 12] = 200.0          # vel U
+        self.Q[12, 12] = 40.0          # vel U
 
         # self.Q[13, 13] = 0.0            # thrust
         # self.Q[14, 14] = 10.0           # thrust alpha
@@ -399,6 +399,32 @@ class PSCTVLQRPolicy(BaseControl):
 
         # Scale by (Tf/2) due to time mapping
         J = (self.Tf / 2.0) * J
+
+        # --- ADD: terminal cost on altitude and vertical speed ---
+        # Final node index
+        # iN = Np1 - 1
+        # X_final = X[:, iN]
+
+        # # State indices:
+        # #   pos_U (altitude) = 9
+        # #   vel_U (vertical velocity) = 12
+        # z_final  = X_final[9]
+        # vz_final = X_final[12]
+
+        # # You already set x_ref[9] = 2.45 in __init__
+        # z_target  = self.x_ref[9]
+        # vz_target = 0.0
+
+        # # Weights for terminal cost
+        # w_z_term  = 50.0    # cost on (z(T) - z_target)
+        # w_vz_term = 200.0   # strong cost on vertical speed at final time
+
+        # J_terminal = w_z_term  * (z_final - z_target)**2 \
+        #            + w_vz_term * (vz_final - vz_target)**2
+
+        # Add terminal cost (no scaling by Tf/2 — it's a pure endpoint cost)
+        # J = J + J_terminal
+
 
         # ----------------------
         # Variable bounds (lbx, ubx)
@@ -540,9 +566,6 @@ class PSCTVLQRPolicy(BaseControl):
         # Optional: print basic info
         print("[PSC] NLP solved. Final cost J =", float(sol["f"]))
 
-        # check the residuals
-        self._check_collocation_residuals()
-
         # print other useful info
         print("[PSC] First node state:")
         print("  q =", self.X_opt[0:4, 0])
@@ -565,30 +588,6 @@ class PSCTVLQRPolicy(BaseControl):
         print("  u_mid =", self.U_opt[:, self.N // 2])
         print("  uN =", self.U_opt[:, -1])
 
-
-    def _check_collocation_residuals(self):
-        nx = self.nx
-        nu = self.nu
-        Np1 = self.Np1
-        Tf = self.Tf
-
-        max_res = 0.0
-        for i in range(Np1):
-            X_i = self.X_opt[:, i]
-            U_i = self.U_opt[:, i]
-
-            # dX/dτ from polynomial
-            dX_dtau_i = np.zeros(nx)
-            for j in range(Np1):
-                dX_dtau_i += self.D[i, j] * self.X_opt[:, j]
-
-            # f(X_i, U_i)
-            f_i = np.array(self.f_fun(X_i, U_i)).flatten()
-
-            res_i = dX_dtau_i - (Tf / 2.0) * f_i
-            max_res = max(max_res, np.linalg.norm(res_i, ord=np.inf))
-
-        print(f"[PSC] Max collocation residual ||dX/dτ - (Tf/2)f||_∞ = {max_res:.3e}")
     
     def _build_tvlqr(self):
         """
@@ -632,13 +631,13 @@ class PSCTVLQRPolicy(BaseControl):
         Q_tvlqr[5, 5] = 5.0             # angular Y
         Q_tvlqr[6, 6] = 5.0             # angular Z
 
-        Q_tvlqr[7, 7] = 10.0            # pos E
-        Q_tvlqr[8, 8] = 10.0            # pos N
+        Q_tvlqr[7, 7] = 20.0            # pos E
+        Q_tvlqr[8, 8] = 20.0            # pos N
         Q_tvlqr[9, 9] = 20.0            # pos U
 
         Q_tvlqr[10, 10] = 20.0          # vel E
         Q_tvlqr[11, 11] = 20.0          # vel N
-        Q_tvlqr[12, 12] = 20.0          # vel U
+        Q_tvlqr[12, 12] = 30.0          # vel U
 
         Q_tvlqr[13, 13] = 0.0            # thrust
         Q_tvlqr[14, 14] = 0.0           # thrust alpha

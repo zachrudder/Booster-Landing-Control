@@ -42,7 +42,7 @@ def ctrl_thread_func(initial_state):
     
     
     # policy = MPCPolicy(initial_state)
-    policy = PSCTVLQRPolicy(initial_state, time_horizon=23.0, N_nodes=50, hover=False, use_tvlqr=True)
+    policy = PSCTVLQRPolicy(initial_state, time_horizon=30.0, N_nodes=50, hover=False, use_tvlqr=True)
 
     print("Active policy: %s" % (policy.get_name()))
 
@@ -79,63 +79,6 @@ def main():
     global g_thread_msgbox
     global g_thread_msgbox_lock
     global g_sim_running
-
-    initial_state_1 = np.array([
-        # q: upright (no rotation)
-        1.0, 0.0, 0.0, 0.0,
-        # omega: almost no angular rates
-        0.0, 0.0, 0.0,
-        # pos: small lateral offset, mid altitude
-        5.0,  -5.0,  45.0,      # E, N, U
-        # vel: slight lateral and downward motion
-        -2.0, 1.0,  -3.0,       # V_E, V_N, V_U
-        # thrust: mid in the [0.65,0.75]*1800 range
-        0.7 * 1800.0,           # 1260 N
-        # thrust vector angles
-        0.0, 0.0                 # alpha, beta
-    ])
-
-    initial_state_2 = np.array([
-        0.99904822, 0.04361939, 0.0, 0.0,    # q (5° roll)
-        0.0, 0.0, 0.0,                       # omega
-        0.0, 0.0, 40.0,                      # pos: above origin
-        0.0, 0.0, -5.0,                      # vel: falling slowly
-        0.7 * 1800.0,                        # thrust
-        0.0, 0.0
-    ])
-
-    initial_state_3 = np.array([
-        0.99904822, 0.0, 0.04361939, 0.0,    # q (5° pitch)
-        0.0, 0.0, 0.0,                       # omega
-        -10.0, 10.0, 50.0,                   # pos
-        3.0, -1.0, -4.0,                     # vel
-        0.72 * 1800.0,                       # 1296 N
-        0.0, 0.0
-    ])
-
-    # hard case
-    initial_state_4 = np.array([
-        1.0, 0.0, 0.0, 0.0,                  # upright
-        np.deg2rad(3.0),                     # omega_x (3°/s)
-        np.deg2rad(-2.0),                    # omega_y (-2°/s)
-        0.0,                                 # omega_z
-        10.0, -15.0, 35.0,                   # pos (closer to ground)
-        -5.0, 2.0, -8.0,                     # vel (faster lateral and downward)
-        0.68 * 1800.0,                       # ~1224 N
-        0.0, 0.0
-    ])
-
-    # near target
-    initial_state_5 = np.array([
-        1.0, 0.0, 0.0, 0.0,                  # upright
-        0.0, 0.0, 0.0,                       # omega
-        0.5, -0.5, 3.0,                      # pos: close to (0,0,2.42)
-        0.5, -0.3, -0.5,                     # small velocities
-        0.5 * 1800.0,                        # ~hover-ish thrust (rough)
-        0.0, 0.0
-    ])
-
-    # g_thread_msgbox['state'] = initial_state_1
 
     # SimRocketEnv is handling the physics simulation
     env = SimRocketEnv(interactive=True)
@@ -191,6 +134,9 @@ def main():
         with g_thread_msgbox_lock:
             g_thread_msgbox['state'] = state
             ctrl_fps = g_thread_msgbox['ctrl_fps']
+
+        # debug
+        # print(f"t={timestamp_current:.2f}, z={state[9]:.2f}, u0={u[0]:.3f}")
 
         # Print some stats once per second:
         if timestamp_current - last_fps_update >= 1.0 or not g_sim_running:
