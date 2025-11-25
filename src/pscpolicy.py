@@ -119,7 +119,7 @@ class PSCTVLQRPolicy(BaseControl):
       - For now, ignores 'observation' (pure open-loop execution).
     """
 
-    def __init__(self, initial_state, time_horizon=3.0, N_nodes=40, hover=False, use_tvlqr=False):
+    def __init__(self, initial_state, time_horizon=20.0, N_nodes=50, hover=False, use_tvlqr=False):
         super().__init__()
 
         # flag to turn on LQR
@@ -237,7 +237,8 @@ class PSCTVLQRPolicy(BaseControl):
             self.u_ref = np.zeros(self.nu)
             self.u_ref[0] = u_hover    # we want thrust around hover
 
-        self.R = np.diag([10.0, 500.0, 500.0, 1000.0, 1000.0])
+        # self.R = np.diag([10.0, 500.0, 500.0, 1000.0, 1000.0])
+        self.R = np.diag([100.0, 750.0, 750.0, 100.0, 100.0])
 
         # Cost weights (same as MPC for state, simple R for control)
         self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
@@ -255,7 +256,7 @@ class PSCTVLQRPolicy(BaseControl):
 
         # self.Q[7, 7] = 100.0            # pos E
         # self.Q[8, 8] = 100.0            # pos N
-        # self.Q[9, 9] = 100.0            # pos U
+        # self.Q[9, 9] = 5.0            # pos U
 
         # self.Q[10, 10] = 10.0          # vel E
         # self.Q[11, 11] = 10.0          # vel N
@@ -677,7 +678,7 @@ class PSCTVLQRPolicy(BaseControl):
 
             # K_i: (nu, nx)
             K_i = np.linalg.solve(S, B_d.T @ P @ A_d)
-            K_i[3:, :] = 0.0    # disable attitude thrusters
+            # K_i[3:, :] = 0.0    # disable attitude thrusters
             K_seq[i] = K_i
 
             # P update
