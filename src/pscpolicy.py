@@ -192,7 +192,7 @@ class PSCTVLQRPolicy(BaseControl):
         if not hover:
             x_ref = np.zeros(self.nx)
             x_ref[0] = 1.0   # q0
-            x_ref[9] = 2.42  # altitude index in state (see rocket_model)
+            x_ref[9] = 2.0  # altitude index in state (see rocket_model)
             self.x_ref = x_ref
         else:
             # Hover test
@@ -240,30 +240,30 @@ class PSCTVLQRPolicy(BaseControl):
         self.R = np.diag([10.0, 500.0, 500.0, 1000.0, 1000.0])
 
         # Cost weights (same as MPC for state, simple R for control)
-        # self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
+        self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
 
-        self.Q = np.eye(self.nx)
+        # self.Q = np.eye(self.nx)
 
-        self.Q[0, 0] = 10.0              # quaternion
-        self.Q[1, 1] = 10.0
-        self.Q[2, 2] = 10.0
-        self.Q[3, 3] = 10.0
+        # self.Q[0, 0] = 10.0              # quaternion
+        # self.Q[1, 1] = 10.0
+        # self.Q[2, 2] = 10.0
+        # self.Q[3, 3] = 10.0
 
-        self.Q[4, 4] = 80.1             # angular X
-        self.Q[5, 5] = 80.1             # angular Y
-        self.Q[6, 6] = 0.5              # angular Z
+        # self.Q[4, 4] = 80.1             # angular X
+        # self.Q[5, 5] = 80.1             # angular Y
+        # self.Q[6, 6] = 0.5              # angular Z
 
-        self.Q[7, 7] = 100.0            # pos E
-        self.Q[8, 8] = 100.0            # pos N
-        self.Q[9, 9] = 100.0            # pos U
+        # self.Q[7, 7] = 100.0            # pos E
+        # self.Q[8, 8] = 100.0            # pos N
+        # self.Q[9, 9] = 100.0            # pos U
 
-        self.Q[10, 10] = 200.0          # vel E
-        self.Q[11, 11] = 200.0          # vel N
-        self.Q[12, 12] = 200.0          # vel U
+        # self.Q[10, 10] = 10.0          # vel E
+        # self.Q[11, 11] = 10.0          # vel N
+        # self.Q[12, 12] = 200.0          # vel U
 
-        self.Q[13, 13] = 0.0            # thrust
-        self.Q[14, 14] = 10.0           # thrust alpha
-        self.Q[15, 15] = 10.0           # thrust beta
+        # self.Q[13, 13] = 0.0            # thrust
+        # self.Q[14, 14] = 10.0           # thrust alpha
+        # self.Q[15, 15] = 10.0           # thrust beta
         
 
 
@@ -633,17 +633,17 @@ class PSCTVLQRPolicy(BaseControl):
 
         Q_tvlqr[7, 7] = 10.0            # pos E
         Q_tvlqr[8, 8] = 10.0            # pos N
-        Q_tvlqr[9, 9] = 10.0            # pos U
+        Q_tvlqr[9, 9] = 20.0            # pos U
 
-        Q_tvlqr[10, 10] = 10.0          # vel E
-        Q_tvlqr[11, 11] = 10.0          # vel N
-        Q_tvlqr[12, 12] = 10.0          # vel U
+        Q_tvlqr[10, 10] = 20.0          # vel E
+        Q_tvlqr[11, 11] = 20.0          # vel N
+        Q_tvlqr[12, 12] = 20.0          # vel U
 
         Q_tvlqr[13, 13] = 0.0            # thrust
         Q_tvlqr[14, 14] = 0.0           # thrust alpha
         Q_tvlqr[15, 15] = 0.0           # thrust beta
 
-        R_tvlqr = np.eye(nu) * 1000.0
+        R_tvlqr = np.eye(nu) * 15000.0
 
         # Precompute linearizations A_i, B_i at each node
         A_seq = []
