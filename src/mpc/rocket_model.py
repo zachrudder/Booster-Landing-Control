@@ -13,6 +13,12 @@ def export_rocket_ode_model() -> AcadosModel:
     gravity = 9.81
     mass_kg = 91.0 # 549.1
 
+    # drag constants
+    AIR_DENSITY = 1.225      
+    CD = 0.47            
+    MODEL_LENGTH = 5.373 
+    MODEL_AVG_CYL_RADIUS = 0.2038
+
     # moment of inertia
     J_11 = 372.6  # Forward
     J_22 = 372.6  # Left
@@ -108,6 +114,20 @@ def export_rocket_ode_model() -> AcadosModel:
     R_b_to_n[2, 1] = 2.0*q_2*q_3 + 2.0*q_1*q_0
     R_b_to_n[2, 2] = 1.0 - 2.0*q_1*q_1 - 2.0*q_2*q_2
 
+    # drag calculations
+    Rz0 = R_b_to_n[0, 2]
+    Rz1 = R_b_to_n[1, 2]
+    Rz2 = R_b_to_n[2, 2]
+
+    Lx = MODEL_LENGTH * (Rz0*Rz0 + 1e-6)**0.5
+    Ly = MODEL_LENGTH * (Rz1*Rz1 + 1e-6)**0.5
+    Lz = MODEL_LENGTH * (Rz2*Rz2 + 1e-6)**0.5
+
+    Ax = Lx * 2.0 * MODEL_AVG_CYL_RADIUS
+    Ay = Ly * 2.0 * MODEL_AVG_CYL_RADIUS
+    Az = Lz * 2.0 * MODEL_AVG_CYL_RADIUS
+
+
     tau_v = SX.sym('tau_v', 3, 1)  # torque from vectored thrust
     booster_pos_cross = np.array([ [ 0,               -booster_pos_up,       booster_pos_left],
                                    [ booster_pos_up,   0,                   -booster_pos_forward],
@@ -137,7 +157,33 @@ def export_rocket_ode_model() -> AcadosModel:
     gravity_n[1] = 0.0
     gravity_n[2] = -gravity
 
-    vel_dot = R_b_to_n@(thrust_body/mass_kg) + gravity_n
+    # no drag
+    # vel_dot = R_b_to_n@(thrust_body/mass_kg) + gravity_n
+
+    # model drag
+    vel_x = vel[0]
+    vel_y = vel[1]
+    vel_z = vel[2]
+
+    drag_mag_x = 0.5 * AIR_DENSITY * CD * Ax * (vel_x*vel_x)
+    drag_mag_y = 0.5 * AIR_DENSITY * CD * Ay * (vel_y*vel_y)
+    drag_mag_z = 0.5 * AIR_DENSITY * CD * Az * (vel_z*vel_z)
+
+    sign_vx = vel_x / ((vel_x*vel_x + 1e-6)**0.5)
+    sign_vy = vel_y / ((vel_y*vel_y + 1e-6)**0.5)
+    sign_vz = vel_z / ((vel_z*vel_z + 1e-6)**0.5)
+
+    F_drag_x = -sign_vx * drag_mag_x
+    F_drag_y = -sign_vy * drag_mag_y
+    F_drag_z = -sign_vz * drag_mag_z
+
+    F_drag = vertcat(F_drag_x, F_drag_y, F_drag_z)
+
+    acc_thrust = R_b_to_n @ (thrust_body / mass_kg)
+    acc_drag   = F_drag / mass_kg
+
+    vel_dot = acc_thrust + acc_drag + gravity_n
+
 
     # Core of the MPC magic
     f_expl = vertcat( -(omega_x*q_1)/2.0 - (omega_y*q_2)/2.0 - (omega_z*q_3)/2.0,
