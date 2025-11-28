@@ -646,6 +646,7 @@ class SimRocketEnv(gym.Env):
             
             # Low thrust is good
             thrust_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (1.0 - current_thrust / self.THRUST_MAX_N)
+            print("CURRENT THRUST HIGH ALT:", current_thrust)
 
             # Low fuel used is good
             fuel_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (1.0 - fuel_used_ratio)
@@ -659,6 +660,7 @@ class SimRocketEnv(gym.Env):
             
             # High thrust is good. (1.0 usage = Max Reward)
             thrust_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (current_thrust / self.THRUST_MAX_N)
+            print("CURRENT THRUST LOW ALT:", current_thrust)
 
             fuel_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (fuel_used_ratio)
 
@@ -681,8 +683,9 @@ class SimRocketEnv(gym.Env):
         total_reward += ( normalized_distance_reward
                         + normalized_velocity_reward
                         + normalized_orientation_reward 
-                        + normalized_thrust_reward
-                        + normalized_fuel_reward )
+                        # + normalized_thrust_reward
+                        # + normalized_fuel_reward )
+        )
         total_reward *= self.dt_sec # normalize
 
         # Shut off engine near the ground and give a huge reward bonus for

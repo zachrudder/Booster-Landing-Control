@@ -1,0 +1,5 @@
+Next steps:
+Modify R_mat in mpcpolicy to account for thrust rewards 
+( exponential function dependent on altitude to encourage high thrust at low altitudes and low thrust at high altitudes)
+
+See if Q_mat can be modified to incorporate low fuel state at end (would need to add another value to weight_diag in rocket_model but maybe this works?)

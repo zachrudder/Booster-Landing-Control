@@ -92,6 +92,7 @@ def export_rocket_ode_model() -> AcadosModel:
     weight_diag[11] = 5.1   # North velocity
     weight_diag[12] = 25.0  # vertical velocity
 
+
     # Control input u
     u = SX.sym('u', 3, 1) # thrust (0 to 1), alpha (-1 to 1), beta (-1 to 1), att_x_thrust, att_y_thrust
 
