@@ -1,20 +1,12 @@
 # pscpolicy.py
 #
-# Pseudo-Spectral Collocation (PSC) trajectory optimizer for the rocket.
-#
-# This uses the SAME dynamics as the NMPC model in mpc/rocket_model.py,
-# but instead of solving a receding-horizon OCP, it solves ONE
-# trajectory optimization problem offline using PSC:
+# Pseudo-Spectral Collocation (PSC) trajectory optimizer for the rocket. LQR 
+# controller to track the trajectory.
 #
 #   - We approximate x(t), u(t) with global polynomials on [-1, 1]
 #   - Use Chebyshev–Lobatto nodes as collocation points
 #   - Enforce dynamics via a differentiation matrix D
 #   - Build an NLP: min J(x,u) subject to collocation + boundary constraints
-#
-# For now, the control is OPEN-LOOP: we compute the trajectory once in __init__,
-# store (X_opt, U_opt), and in next() we just play back U_opt with time.
-#
-# Later you can add TVLQR around this nominal trajectory.
 
 import numpy as np
 import time
@@ -241,25 +233,25 @@ class PSCTVLQRPolicy(BaseControl):
         self.R = np.diag([90.0, 750.0, 750.0, 100.0, 100.0])
 
         # Cost weights (same as MPC for state, simple R for control)
-        self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
+        # self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
 
-        # self.Q = np.eye(self.nx)
+        self.Q = np.eye(self.nx) * 1e-6
 
-        # self.Q[0, 0] = 10.0              # quaternion
-        # self.Q[1, 1] = 10.0
-        # self.Q[2, 2] = 10.0
-        # self.Q[3, 3] = 10.0
+        self.Q[0, 0] = 6.0              # quaternion
+        self.Q[1, 1] = 6.0
+        self.Q[2, 2] = 6.0
+        self.Q[3, 3] = 6.0
 
-        # self.Q[4, 4] = 80.1             # angular X
-        # self.Q[5, 5] = 80.1             # angular Y
-        # self.Q[6, 6] = 0.5              # angular Z
+        self.Q[4, 4] = 80.1             # angular X
+        self.Q[5, 5] = 80.1             # angular Y
+        self.Q[6, 6] = 0.5              # angular Z
 
-        # self.Q[7, 7] = 100.0            # pos E
-        # self.Q[8, 8] = 100.0            # pos N
-        # self.Q[9, 9] = 5.0            # pos U
+        self.Q[7, 7] = 1.0            # pos E
+        self.Q[8, 8] = 1.0            # pos N
+        self.Q[9, 9] = 3.0            # pos U
 
-        # self.Q[10, 10] = 10.0          # vel E
-        # self.Q[11, 11] = 10.0          # vel N
+        self.Q[10, 10] = 5.1          # vel E
+        self.Q[11, 11] = 5.1          # vel N
         self.Q[12, 12] = 40.0          # vel U
 
         # self.Q[13, 13] = 0.0            # thrust
@@ -622,21 +614,21 @@ class PSCTVLQRPolicy(BaseControl):
         # Stage cost matrices
         Q_tvlqr = np.eye(nx)
 
-        Q_tvlqr[0, 0] = 5.0              # quaternion
-        Q_tvlqr[1, 1] = 5.0
-        Q_tvlqr[2, 2] = 5.0
-        Q_tvlqr[3, 3] = 5.0
+        Q_tvlqr[0, 0] = 10.0              # quaternion
+        Q_tvlqr[1, 1] = 10.0
+        Q_tvlqr[2, 2] = 10.0
+        Q_tvlqr[3, 3] = 10.0
 
-        Q_tvlqr[4, 4] = 5.0            # angular X
-        Q_tvlqr[5, 5] = 5.0             # angular Y
-        Q_tvlqr[6, 6] = 5.0             # angular Z
+        Q_tvlqr[4, 4] = 10.0            # angular X
+        Q_tvlqr[5, 5] = 10.0             # angular Y
+        Q_tvlqr[6, 6] = 10.0             # angular Z
 
-        Q_tvlqr[7, 7] = 20.0            # pos E
-        Q_tvlqr[8, 8] = 20.0            # pos N
-        Q_tvlqr[9, 9] = 20.0            # pos U
+        Q_tvlqr[7, 7] = 30.0            # pos E
+        Q_tvlqr[8, 8] = 30.0            # pos N
+        Q_tvlqr[9, 9] = 30.0            # pos U
 
-        Q_tvlqr[10, 10] = 20.0          # vel E
-        Q_tvlqr[11, 11] = 20.0          # vel N
+        Q_tvlqr[10, 10] = 30.0          # vel E
+        Q_tvlqr[11, 11] = 30.0          # vel N
         Q_tvlqr[12, 12] = 30.0          # vel U
 
         Q_tvlqr[13, 13] = 0.0            # thrust
