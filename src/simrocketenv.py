@@ -186,7 +186,8 @@ class SimRocketEnv(gym.Env):
             print("\033[33mpybullet physics active.\033[0m")
             self.CLIENT = p.connect(p.GUI)
         else:
-            self.CLIENT = p.connect(p.DIRECT)        
+            self.CLIENT = p.connect(p.DIRECT)     
+
     def reset(self, seed=14, options={}) -> float:
         """
         Gym interface. Reset the simulation.
