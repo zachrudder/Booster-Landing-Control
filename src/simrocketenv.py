@@ -24,6 +24,8 @@ class SimRocketEnv(gym.Env):
     def __init__(self, interactive=False, scale_obs_space=1.0):
         print("PyRocketCraft")
         self.pybullet_initialized = False
+
+        self.high_thrust_count = 0 # to track whether thrust cost is actually working.
             
         self.attitude_control_on = False # set to True to allow attitude control thrusters
 
@@ -65,7 +67,7 @@ class SimRocketEnv(gym.Env):
         self.AIR_DENSITY = 1.225 # kg/m^3 at sea level
         self.Cd = 0.47 # Approx Cd for a cylinder
         self.mass_kg = -99999999.9 # will be loaded and updated from URDF
-        self.MIN_GROUND_DIST_M = 2.4 # shut off engine below this altitude
+        self.MIN_GROUND_DIST_M = 2.5 # shut off engine below this altitude
         # OFFSET between CoG and nozzle. Is there a way to get this from URDF?
         self.NOZZLE_OFFSET = -2.0
         self.ATT_THRUSTER_OFFSET = 2.0
@@ -549,6 +551,9 @@ class SimRocketEnv(gym.Env):
         action[1] = np.clip(action[1], self.UMIN, self.UMAX)
         action[2] = np.clip(action[2], self.UMIN, self.UMAX)
         action[0] = np.clip(action[0], self.THRUST_UMIN, self.UMAX) # thrust has a different limit
+        print("THRUST: ", action[0], " ALPHA: ", action[1], " BETA: ", action[2])
+        if action[0] > 0.2 and self.pos_n[2] / self.init_height > 0.4:
+            self.high_thrust_count += 1
 
         done = False
         self.time_sec = self.time_sec + self.dt_sec
@@ -565,6 +570,7 @@ class SimRocketEnv(gym.Env):
         if self.engine_on is False:
             self.time_on_ground_sec += self.dt_sec
             if self.time_on_ground_sec > self.WAIT_ON_GROUND_SEC:
+                print("NUMBER OF LARGE THRUSTS: ", self.high_thrust_count)
                 done = True
 
         # Stop the non-interactive simulation if the attitude is way off
@@ -646,7 +652,7 @@ class SimRocketEnv(gym.Env):
             
             # Low thrust is good
             thrust_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (1.0 - current_thrust / self.THRUST_MAX_N)
-            print("CURRENT THRUST HIGH ALT:", current_thrust)
+            # print("CURRENT THRUST HIGH ALT:", current_thrust)
 
             # Low fuel used is good
             fuel_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (1.0 - fuel_used_ratio)
@@ -660,7 +666,7 @@ class SimRocketEnv(gym.Env):
             
             # High thrust is good. (1.0 usage = Max Reward)
             thrust_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (current_thrust / self.THRUST_MAX_N)
-            print("CURRENT THRUST LOW ALT:", current_thrust)
+            # print("CURRENT THRUST LOW ALT:", current_thrust)
 
             fuel_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (fuel_used_ratio)
 
