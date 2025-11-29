@@ -9,7 +9,9 @@
 #   - Build an NLP: min J(x,u) subject to collocation + boundary constraints
 
 import numpy as np
+import matplotlib.pyplot as plt
 import time
+from mpl_toolkits.mplot3d import Axes3D
 from casadi import MX, vertcat, Function, nlpsol, jacobian
 
 from basecontrol import BaseControl
@@ -230,35 +232,44 @@ class PSCTVLQRPolicy(BaseControl):
             self.u_ref[0] = u_hover    # we want thrust around hover
 
         # self.R = np.diag([10.0, 500.0, 500.0, 1000.0, 1000.0])
-        self.R = np.diag([90.0, 750.0, 750.0, 100.0, 100.0])
+        self.R = np.diag([90.0, 750.0, 750.0, 1000.0, 1000.0])
 
         # Cost weights (same as MPC for state, simple R for control)
-        # self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
+        self.Q = np.diag(self.model.weight_diag)          # (nx,nx)
 
-        self.Q = np.eye(self.nx) * 1e-6
+        # self.Q = np.eye(self.nx) * 1e-6
 
-        self.Q[0, 0] = 6.0              # quaternion
-        self.Q[1, 1] = 6.0
-        self.Q[2, 2] = 6.0
-        self.Q[3, 3] = 6.0
+        # self.Q[0, 0] = 6.0              # quaternion
+        # self.Q[1, 1] = 6.0
+        # self.Q[2, 2] = 6.0
+        # self.Q[3, 3] = 6.0
 
-        self.Q[4, 4] = 80.1             # angular X
-        self.Q[5, 5] = 80.1             # angular Y
-        self.Q[6, 6] = 0.5              # angular Z
+        # self.Q[4, 4] = 80.1             # angular X
+        # self.Q[5, 5] = 80.1             # angular Y
+        # self.Q[6, 6] = 0.5              # angular Z
 
-        self.Q[7, 7] = 1.0            # pos E
-        self.Q[8, 8] = 1.0            # pos N
-        self.Q[9, 9] = 3.0            # pos U
+        # self.Q[7, 7] = 1.0            # pos E
+        # self.Q[8, 8] = 1.0            # pos N
+        # self.Q[9, 9] = 3.0            # pos U
 
-        self.Q[10, 10] = 5.1          # vel E
-        self.Q[11, 11] = 5.1          # vel N
-        self.Q[12, 12] = 40.0          # vel U
+        # self.Q[10, 10] = 5.1          # vel E
+        # self.Q[11, 11] = 5.1          # vel N
+        # self.Q[12, 12] = 30.0          # vel U
 
         # self.Q[13, 13] = 0.0            # thrust
         # self.Q[14, 14] = 10.0           # thrust alpha
         # self.Q[15, 15] = 10.0           # thrust beta
-        
 
+        # --- Logging for analysis ---
+        self.log_t = []              # time stamps
+        self.log_idx = []            # PSC node indices
+        self.log_x_actual = []       # actual state from env
+        self.log_x_nom = []          # nominal state from PSC
+        self.log_u_total = []        # control actually sent to env
+        self.log_u_nom = []          # nominal PSC control
+        self.log_x_err_norm = []     # ||x - x_nom||
+        self.log_delta_u_norm = []   # ||u - u_nom|| (LQR correction)
+        
 
         # Build the PSC NLP in CasADi
         self._build_psc_nlp(initial_state)
@@ -614,10 +625,10 @@ class PSCTVLQRPolicy(BaseControl):
         # Stage cost matrices
         Q_tvlqr = np.eye(nx)
 
-        Q_tvlqr[0, 0] = 10.0              # quaternion
-        Q_tvlqr[1, 1] = 10.0
-        Q_tvlqr[2, 2] = 10.0
-        Q_tvlqr[3, 3] = 10.0
+        Q_tvlqr[0, 0] = 100.0              # quaternion
+        Q_tvlqr[1, 1] = 100.0
+        Q_tvlqr[2, 2] = 100.0
+        Q_tvlqr[3, 3] = 100.0
 
         Q_tvlqr[4, 4] = 10.0            # angular X
         Q_tvlqr[5, 5] = 10.0             # angular Y
@@ -627,9 +638,9 @@ class PSCTVLQRPolicy(BaseControl):
         Q_tvlqr[8, 8] = 30.0            # pos N
         Q_tvlqr[9, 9] = 30.0            # pos U
 
-        Q_tvlqr[10, 10] = 30.0          # vel E
-        Q_tvlqr[11, 11] = 30.0          # vel N
-        Q_tvlqr[12, 12] = 30.0          # vel U
+        Q_tvlqr[10, 10] = 50.0          # vel E
+        Q_tvlqr[11, 11] = 50.0          # vel N
+        Q_tvlqr[12, 12] = 50.0          # vel U
 
         Q_tvlqr[13, 13] = 0.0            # thrust
         Q_tvlqr[14, 14] = 0.0           # thrust alpha
@@ -699,21 +710,7 @@ class PSCTVLQRPolicy(BaseControl):
             Simple preview of the next 5 nominal states on the trajectory.
         """
 
-        # Advance time
-        # self.t_elapsed += self.ctrl_dt
-        # if self.t_elapsed > self.Tf:
-        #     self.t_elapsed = self.Tf
-
-        # only advance the time when sim actually updates
-        # if not hasattr(self, "_last_x_obs"):
-        #     self._last_x_obs = np.asarray(observation).copy()
-
-        # if np.linalg.norm(np.asarray(observation) - self._last_x_obs) > 1e-6:
-        #     # sim actually advanced
-        #     self.t_elapsed += self.ctrl_dt
-        #     self._last_x_obs = np.asarray(observation).copy()
-
-        # another try for fixing time
+        # Advance the time
         now = time.time()
         if not hasattr(self, "_last_call"):
             self._last_call = now
@@ -727,7 +724,7 @@ class PSCTVLQRPolicy(BaseControl):
         if dt > 0.1:
             dt = 0.0
 
-        # advance PSC time using ACTUAL dt
+        # advance PSC time using actual dt
         self.t_elapsed += dt
 
         # Don't run past the end of the PSC horizon
@@ -736,11 +733,6 @@ class PSCTVLQRPolicy(BaseControl):
 
 
         # Map current time to a node index
-        # alpha = self.t_elapsed / self.Tf
-        # i_float = alpha * self.N
-        # idx = int(np.clip(np.round(i_float), 0, self.N))
-
-        # alternate method
         idx = np.searchsorted(self.t_grid, self.t_elapsed, side="left")
         idx = int(np.clip(idx, 0, self.N))
 
@@ -751,7 +743,12 @@ class PSCTVLQRPolicy(BaseControl):
         u_nom = np.array(self.U_opt[:, idx]).flatten()
         x_nom = np.array(self.X_opt[:, idx]).flatten()
 
-        # Default: open-loop PSC
+        # Actual state
+        x = np.asarray(observation).flatten()
+
+        delta_u = np.zeros_like(u_nom)  # will stay zero if TVLQR off
+        x_err = x - x_nom
+
         u = u_nom.copy()
 
         # If TVLQR is enabled, use it as a tracking law
@@ -782,6 +779,16 @@ class PSCTVLQRPolicy(BaseControl):
                 print("[TVLQR] NOT active. use_tvlqr=",
                     getattr(self, "use_tvlqr", None),
                     "K_seq is None" if not hasattr(self, "K_seq") or self.K_seq is None else "K_seq set")
+
+        # --- Logging for analysis ---
+        self.log_t.append(self.t_elapsed)
+        self.log_idx.append(idx)
+        self.log_x_actual.append(x)
+        self.log_x_nom.append(x_nom)
+        self.log_u_total.append(u)
+        self.log_u_nom.append(u_nom)
+        self.log_x_err_norm.append(float(np.linalg.norm(x_err)))
+        self.log_delta_u_norm.append(float(np.linalg.norm(delta_u)))
 
         # Safety: enforce the same input bounds as the NLP
         # Main thrust in [0.20, 1.00], others in [-1, 1]
@@ -851,4 +858,94 @@ class PSCTVLQRPolicy(BaseControl):
             plt.tight_layout()
             plt.show()
 
+    def debug_plot_tvlqr_tracking(self):
+        """
+        Plot:
+        - Planned vs actual altitude over time
+        - Norm of state tracking error ||x - x_nom||
+        - Norm of LQR correction ||u - u_nom||
+        - 3D planned vs actual trajectory
+        """
+
+        if not self.log_t:
+            print("[TVLQR DEBUG] No log data recorded yet.")
+            return
+
+        # Logged data from the sim
+        t = np.array(self.log_t)
+        x_act = np.array(self.log_x_actual)      # (T, nx)
+        x_nom = np.array(self.log_x_nom)         # (T, nx)
+        u_tot = np.array(self.log_u_total)       # (T, nu)
+        u_nom = np.array(self.log_u_nom)         # (T, nu)
+        err_norm = np.array(self.log_x_err_norm)
+        du_norm = np.array(self.log_delta_u_norm)
+
+        # Altitude index
+        IDX_Z = 9
+
+        # 1) Altitude: planned vs actual
+        z_act = x_act[:, IDX_Z]
+        z_nom = x_nom[:, IDX_Z]
+
+        plt.figure(figsize=(8, 4))
+        plt.plot(t, z_nom, label="z_nom (PSC)")
+        plt.plot(t, z_act, label="z_actual (sim)", linestyle="--")
+        plt.xlabel("time [s]")
+        plt.ylabel("altitude [m]")
+        plt.title("Altitude: planned vs actual")
+        plt.legend()
+        plt.grid(True)
+
+        # 2) Tracking error norm
+        plt.figure(figsize=(8, 4))
+        plt.plot(t, err_norm)
+        plt.xlabel("time [s]")
+        plt.ylabel(r"$\|x - x_{\mathrm{nom}}\|$")
+        plt.title("State tracking error norm")
+        plt.grid(True)
+
+        # 3) LQR correction norm
+        plt.figure(figsize=(8, 4))
+        plt.plot(t, du_norm)
+        plt.xlabel("time [s]")
+        plt.ylabel(r"$\|u - u_{\mathrm{nom}}\|$")
+        plt.title("Control correction norm (LQR effort)")
+        plt.grid(True)
+
+        # 4) 3D PLOT: Planned vs Actual Trajectory
+        if hasattr(self, "last_X_traj") and self.last_X_traj is not None:
+            X_plan = self.last_X_traj  # shape: (nx, N+1)
+        else:
+            print("[TVLQR DEBUG] No last_X_traj found → cannot make 3D plot.")
+            plt.show()
+            return
+
+        # Extract planned trajectory position
+        posE_plan = X_plan[7, :]   # East
+        posN_plan = X_plan[8, :]   # North
+        posZ_plan = X_plan[9, :]   # Up
+
+        # Extract actual trajectory position
+        posE_act = x_act[:, 7]
+        posN_act = x_act[:, 8]
+        posZ_act = x_act[:, 9]
+
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111, projection="3d")
+
+        ax.plot(posE_plan, posN_plan, posZ_plan,
+                label="Planned (PSC)", linewidth=2)
+
+        ax.plot(posE_act, posN_act, posZ_act,
+                linestyle="--", label="Actual (Sim)", linewidth=2)
+
+        ax.set_xlabel("East [m]")
+        ax.set_ylabel("North [m]")
+        ax.set_zlabel("Up [m]")
+        ax.set_title("3D Trajectory: Planned vs Actual")
+        ax.legend()
+        ax.grid(True)
+
+        plt.tight_layout()
+        plt.show()
 

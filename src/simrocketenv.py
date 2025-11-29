@@ -188,7 +188,7 @@ class SimRocketEnv(gym.Env):
         else:
             self.CLIENT = p.connect(p.DIRECT)     
 
-    def reset(self, seed=14, options={}) -> float:
+    def reset(self, seed=1, options={}) -> float:
         """
         Gym interface. Reset the simulation.
         :return state (state vector), info dict.

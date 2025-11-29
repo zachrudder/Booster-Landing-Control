@@ -46,6 +46,10 @@ def ctrl_thread_func(initial_state):
 
     print("Active policy: %s" % (policy.get_name()))
 
+    # publish policy object so main() can read its logs later
+    with g_thread_msgbox_lock:
+        g_thread_msgbox['policy'] = policy
+
     # make sure a control algorithm update is performed in the first epoch
     CTRL_DT_SEC = 1.0 / 100.0  # run the control law every XX ms
     timestamp_last_ctrl_update = time.time() - 2*CTRL_DT_SEC
@@ -151,6 +155,12 @@ def main():
         if done is True:
             g_sim_running = False
             print("Total reward of episode: %i" % reward_sum)
+    
+    with g_thread_msgbox_lock:
+        policy = g_thread_msgbox.get('policy', None)
+
+    # if policy is not None:
+    #     policy.debug_plot_tvlqr_tracking()
 
     # Main Loop Finished. Wait for control thread to finish.
     nmpc_thread.join()
