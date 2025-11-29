@@ -66,38 +66,31 @@ def chebyshev_lobatto_nodes_and_D(N: int):
     return tau, D
 
 
-def trapezoidal_weights_on_nodes(tau: np.ndarray):
+def clenshaw_curtis_weights(N: int):
     """
-    Very simple quadrature weights on arbitrary nodes using the
-    trapezoidal rule in τ-space.
-
-    tau: (N+1,) nodes in [-1,1] (not necessarily uniform, here Chebyshev)
+    Compute Clenshaw-Curtis quadrature weights for CGL nodes.
+    Spectrally accurate quadrature on Chebyshev-Lobatto grid.
 
     Returns:
-      w: (N+1,) weights such that
-         ∫_{-1}^1 g(τ) dτ ≈ sum_i w[i] * g(τ_i)
-
-    NOTE: This is NOT spectrally accurate like true LGL/Clenshaw-Curtis
-    weights, but it’s simple and works as a first implementation.
-    You can later replace this with more accurate quadrature if desired.
+      w: shape (N+1,), weights that integrate polynomials of degree <= N exactly.
     """
-    Np1 = tau.shape[0]
-    w = np.zeros(Np1)
-    # Sort indices just in case (Chebyshev already monotonic in k).
-    # Here we assume tau is in descending order (cos), but differences
-    # handle this correctly.
-    for i in range(Np1):
-        if i == 0:
-            # first node: half-interval to next
-            w[i] = 0.5 * (tau[0] - tau[1])
-        elif i == Np1 - 1:
-            # last node: half-interval from previous
-            w[i] = 0.5 * (tau[Np1 - 2] - tau[Np1 - 1])
-        else:
-            # middle nodes: half from left + half from right
-            w[i] = 0.5 * (tau[i - 1] - tau[i + 1])
-    # Absolute value to keep positive orientation (integral from -1 to 1)
-    return np.abs(w)
+    theta = np.pi * np.arange(N+1) / N
+    w = np.zeros(N+1)
+
+    J = np.arange(0, N+1, 2)
+    w = np.zeros(N+1)
+
+    for k in range(N+1):
+        theta_k = theta[k]
+        s = 0.0
+        for j in J:
+            if j == 0:
+                s += 1.0     # cos(0) = 1 and 2/(1 - 0^2) = 2
+            else:
+                s += (2 / (1 - j**2)) * np.cos(j * theta_k)
+        w[k] = (2 / N) * s
+
+    return w
 
 
 class PSCTVLQRPolicy(BaseControl):
@@ -113,11 +106,12 @@ class PSCTVLQRPolicy(BaseControl):
       - For now, ignores 'observation' (pure open-loop execution).
     """
 
-    def __init__(self, initial_state, time_horizon=20.0, N_nodes=50, hover=False, use_tvlqr=False):
+    def __init__(self, initial_state, time_horizon=20.0, N_nodes=50, hover=False, use_tvlqr=False, debug=False):
         super().__init__()
 
         # flag to turn on LQR
         self.use_tvlqr = use_tvlqr
+        self.debug = debug
 
         # keep correct time
         self.ctrl_dt = 1.0 / 120.0  # must match CTRL_DT_SEC in rocket_craft
@@ -142,14 +136,11 @@ class PSCTVLQRPolicy(BaseControl):
         # tau: (N+1,) collocation nodes in [-1,1]
         # D:   (N+1, N+1) differentiation matrix in τ
         self.tau, self.D = chebyshev_lobatto_nodes_and_D(self.N)
+        self.w = clenshaw_curtis_weights(self.N)
 
         # reverse so tau is [-1, 1] and D is increasing
         self.tau = self.tau[::-1]
         self.D   = self.D[::-1, ::-1]
-
-
-        # quadrature weights for ∫_{-1}^1 g(τ) dτ
-        self.w = trapezoidal_weights_on_nodes(self.tau)
 
         # map τ in [-1,1] to real time t ∈ [0, Tf]
         # t = (Tf/2)*(τ + 1)
@@ -193,27 +184,28 @@ class PSCTVLQRPolicy(BaseControl):
             self.x_ref = self.x0.copy()
             self.x_ref[0] = 1.0 
 
-        # ------------------------------------------------------------------
-        # Debug: print initial state and reference / goal state for PSC
-        # ------------------------------------------------------------------
-        print("\n[PSC] Initial state from ENV (x0):")
-        print("  q      =", self.x0[0:4])
-        print("  omega  =", self.x0[4:7])
-        print("  pos    =", self.x0[7:10])
-        print("  vel    =", self.x0[10:13])
-        print("  thrust =", self.x0[13])
-        print("  t_alpha, t_beta =", self.x0[14], self.x0[15])
+        if self.debug:
+            # ------------------------------------------------------------------
+            # Debug: print initial state and reference / goal state for PSC
+            # ------------------------------------------------------------------
+            print("\n[PSC] Initial state from ENV (x0):")
+            print("  q      =", self.x0[0:4])
+            print("  omega  =", self.x0[4:7])
+            print("  pos    =", self.x0[7:10])
+            print("  vel    =", self.x0[10:13])
+            print("  thrust =", self.x0[13])
+            print("  t_alpha, t_beta =", self.x0[14], self.x0[15])
 
-        print("\n[PSC] Reference / goal state (x_ref):")
-        print("  q_ref      =", self.x_ref[0:4])
-        print("  omega_ref  =", self.x_ref[4:7])
-        print("  pos_ref    =", self.x_ref[7:10])
-        print("  vel_ref    =", self.x_ref[10:13])
-        print("  thrust_ref =", self.x_ref[13] if self.x_ref.shape[0] > 13 else None)
-        print("  t_alpha_ref, t_beta_ref =",
-              self.x_ref[14] if self.x_ref.shape[0] > 14 else None,
-              self.x_ref[15] if self.x_ref.shape[0] > 15 else None)
-        print("-----------------------------------------------------\n")
+            print("\n[PSC] Reference / goal state (x_ref):")
+            print("  q_ref      =", self.x_ref[0:4])
+            print("  omega_ref  =", self.x_ref[4:7])
+            print("  pos_ref    =", self.x_ref[7:10])
+            print("  vel_ref    =", self.x_ref[10:13])
+            print("  thrust_ref =", self.x_ref[13] if self.x_ref.shape[0] > 13 else None)
+            print("  t_alpha_ref, t_beta_ref =",
+                self.x_ref[14] if self.x_ref.shape[0] > 14 else None,
+                self.x_ref[15] if self.x_ref.shape[0] > 15 else None)
+            print("-----------------------------------------------------\n")
 
 
         # For controls, we'll just encourage them to stay small around 0.
@@ -569,27 +561,28 @@ class PSCTVLQRPolicy(BaseControl):
         # Optional: print basic info
         print("[PSC] NLP solved. Final cost J =", float(sol["f"]))
 
-        # print other useful info
-        print("[PSC] First node state:")
-        print("  q =", self.X_opt[0:4, 0])
-        print("  omega =", self.X_opt[4:7, 0])
-        print("  pos =", self.X_opt[7:10, 0])
-        print("  vel =", self.X_opt[10:13, 0])
-        print("  thrust =", self.X_opt[13, 0])
-        print("  t_alpha, t_beta =", self.X_opt[14, 0], self.X_opt[15, 0])
+        if self.debug:
+            # print other useful info
+            print("[PSC] First node state:")
+            print("  q =", self.X_opt[0:4, 0])
+            print("  omega =", self.X_opt[4:7, 0])
+            print("  pos =", self.X_opt[7:10, 0])
+            print("  vel =", self.X_opt[10:13, 0])
+            print("  thrust =", self.X_opt[13, 0])
+            print("  t_alpha, t_beta =", self.X_opt[14, 0], self.X_opt[15, 0])
 
-        print("[PSC] Last node state:")
-        print("  q =", self.X_opt[0:4, -1])
-        print("  omega =", self.X_opt[4:7, -1])
-        print("  pos =", self.X_opt[7:10, -1])
-        print("  vel =", self.X_opt[10:13, -1])
-        print("  thrust =", self.X_opt[13, -1])
-        print("  t_alpha, t_beta =", self.X_opt[14, -1], self.X_opt[15, -1])
+            print("[PSC] Last node state:")
+            print("  q =", self.X_opt[0:4, -1])
+            print("  omega =", self.X_opt[4:7, -1])
+            print("  pos =", self.X_opt[7:10, -1])
+            print("  vel =", self.X_opt[10:13, -1])
+            print("  thrust =", self.X_opt[13, -1])
+            print("  t_alpha, t_beta =", self.X_opt[14, -1], self.X_opt[15, -1])
 
-        print("[PSC] Example controls (first, mid, last):")
-        print("  u0 =", self.U_opt[:, 0])
-        print("  u_mid =", self.U_opt[:, self.N // 2])
-        print("  uN =", self.U_opt[:, -1])
+            print("[PSC] Example controls (first, mid, last):")
+            print("  u0 =", self.U_opt[:, 0])
+            print("  u_mid =", self.U_opt[:, self.N // 2])
+            print("  uN =", self.U_opt[:, -1])
 
     
     def _build_tvlqr(self):
@@ -836,7 +829,7 @@ class PSCTVLQRPolicy(BaseControl):
         ax.grid(True)
 
         plt.tight_layout()
-        plt.show()
+        plt.savefig("output/Collocation_node_placement.png")
 
         # 3) Optional: if we have a solved trajectory, plot altitude vs time
         if hasattr(self, "X_opt"):
@@ -856,7 +849,7 @@ class PSCTVLQRPolicy(BaseControl):
             fig.colorbar(sc, ax=ax3, label="t [s]")
 
             plt.tight_layout()
-            plt.show()
+            plt.savefig("output/altitue_v_time.png")
 
     def debug_plot_tvlqr_tracking(self):
         """
@@ -917,7 +910,6 @@ class PSCTVLQRPolicy(BaseControl):
             X_plan = self.last_X_traj  # shape: (nx, N+1)
         else:
             print("[TVLQR DEBUG] No last_X_traj found → cannot make 3D plot.")
-            plt.show()
             return
 
         # Extract planned trajectory position
@@ -947,5 +939,5 @@ class PSCTVLQRPolicy(BaseControl):
         ax.grid(True)
 
         plt.tight_layout()
-        plt.show()
+        plt.savefig("output/tvlqr_tracking.png")
 

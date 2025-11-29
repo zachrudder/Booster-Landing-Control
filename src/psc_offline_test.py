@@ -12,12 +12,11 @@ def run_offline_psc_test():
     env = SimRocketEnv(interactive=False)
     state = env.state.copy()
 
-    policy = PSCTVLQRPolicy(state, time_horizon=30.0, N_nodes=50, hover=False, use_tvlqr=True)
+    policy = PSCTVLQRPolicy(state, time_horizon=30.0, N_nodes=30, hover=False, use_tvlqr=True, debug=True)
 
     # Use the same dt as PSC node spacing or something small like env.dt_sec
     T = policy.Tf
-    t_grid = policy.t_grid  # (N+1,)
-    U_opt = policy.U_opt    # (nu, N+1)
+    U_opt = policy.U_opt
 
     # Simple: at each env step, pick u based on current time
     t = 0.0
@@ -45,20 +44,16 @@ def run_offline_psc_test():
     print("[PSC] Offline rollout finished. Steps:", len(traj_states))
     # here you could print final altitude, attitude, etc.
 
-    # plot the trajectory
-    # X_traj = policy.last_X_traj
-    # plot_trajectory_3d(X_traj)
-
     # plot trajectory with orientation
     X_traj = policy.last_X_traj
     plot_trajectory_3d_with_orientation_and_thrust(X_traj)
 
     # plot collocation points
-    # policy.debug_plot_collocation_nodes()
+    policy.debug_plot_collocation_nodes()
 
     # plot control inputs vs time
     U_traj = policy.last_U_traj
-    # plot_u_vs_time(U_traj)
+    plot_u_vs_time(U_traj)
 
 if __name__ == "__main__":
     run_offline_psc_test()

@@ -2,54 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D   # noqa: F401
 
-def plot_trajectory_3d(X_traj):
-    """
-    Plot 3D rocket trajectory using position states.
-    X_traj: ndarray of shape (N+1, 16)
-    """
-
-    # Extract ENU positions
-    pos_E = X_traj[7, :]   # East
-    pos_N = X_traj[8, :]   # North
-    pos_U = X_traj[9, :]   # Up
-
-    fig = plt.figure(figsize=(10, 7))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Plot trajectory line
-    ax.plot(pos_E, pos_N, pos_U, '-o', markersize=3, linewidth=2, label='PSC Traj')
-
-    # Mark start and end
-    ax.scatter(pos_E[0], pos_N[0], pos_U[0], color='green', s=70, label='Start')
-    ax.scatter(pos_E[-1], pos_N[-1], pos_U[-1], color='red', s=70, label='End')
-
-    # Set labels
-    ax.set_xlabel("East (m)")
-    ax.set_ylabel("North (m)")
-    ax.set_zlabel("Up (m)")
-    ax.set_title("Rocket PSC Trajectory (3D Position)")
-
-    # Equal scaling for axes
-    max_range = np.array([pos_E.max()-pos_E.min(),
-                          pos_N.max()-pos_N.min(),
-                          pos_U.max()-pos_U.min()]).max() / 2.0
-
-    mid_x = (pos_E.max()+pos_E.min()) * 0.5
-    mid_y = (pos_N.max()+pos_N.min()) * 0.5
-    mid_z = (pos_U.max()+pos_U.min()) * 0.5
-
-    ax.set_xlim(mid_x - max_range, mid_x + max_range)
-    ax.set_ylim(mid_y - max_range, mid_y + max_range)
-    ax.set_zlim(mid_z - max_range, mid_z + max_range)
-
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
-
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D   # noqa: F401
-
 
 def quat_to_R_body_to_nav(qw, qx, qy, qz):
     """
@@ -201,7 +153,7 @@ def plot_trajectory_3d_with_orientation_and_thrust(X_traj):
 
     ax.legend()
     plt.tight_layout()
-    plt.show()
+    plt.savefig("output/trajectory_plot.png")
 
 
 
@@ -255,4 +207,4 @@ def plot_u_vs_time(U, t=None, Tf=None, title="Control inputs vs time"):
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.show()
+    plt.savefig("output/control_plot.png")
