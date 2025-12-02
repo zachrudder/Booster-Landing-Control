@@ -4,11 +4,6 @@
 #
 # Pseudo-Spectral Collocation (PSC) trajectory optimizer for the rocket. LQR 
 # controller to track the trajectory.
-#
-#   - We approximate x(t), u(t) with global polynomials on [-1, 1]
-#   - Use Chebyshev–Lobatto nodes as collocation points
-#   - Enforce dynamics via a differentiation matrix D
-#   - Build an NLP: min J(x,u) subject to collocation + boundary constraints
 
 import matplotlib.pyplot as plt
 import numpy as np

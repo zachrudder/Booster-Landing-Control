@@ -37,12 +37,15 @@ def ctrl_thread_func(initial_state):
     global g_thread_msgbox
     global g_thread_msgbox_lock
     global g_sim_running
-
-    # Switch between policies here:
-    # -------------------`----------
-    # print("Initial state passed to PSC:", initial_state)
     
-    policy = PSCPolicy(initial_state, time_horizon=31.0, N_nodes=30, hover=False, use_tvlqr=True, debug=True)
+    policy = PSCPolicy(
+        initial_state, 
+        time_horizon=31.0, 
+        N_nodes=30, 
+        hover=False, 
+        use_tvlqr=True, 
+        debug=False
+    )
 
     print("Active policy: %s" % (policy.get_name()))
 
@@ -164,7 +167,7 @@ def main():
     with g_thread_msgbox_lock:
         policy = g_thread_msgbox.get('policy', None)
 
-    if policy is not None:
+    if policy is not None and getattr(policy, "debug", False):
         policy.debug_plot_tvlqr_tracking()
     else:
         print("No policy found.")
