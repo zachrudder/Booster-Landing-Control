@@ -1,3 +1,9 @@
+# psc_plot_trajectory.py
+#
+# Created by Cody Hopkins, Zach Rudder, and Finn Maniscalco
+# 
+# Helper functions for plotting.
+
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D   # noqa: F401
@@ -9,9 +15,9 @@ def plot_trajectory_3d(X_traj):
     """
 
     # Extract ENU positions
-    pos_E = X_traj[7, :]   # East
-    pos_N = X_traj[8, :]   # North
-    pos_U = X_traj[9, :]   # Up
+    pos_E = X_traj[7, :]   
+    pos_N = X_traj[8, :]   
+    pos_U = X_traj[9, :]  
 
     fig = plt.figure(figsize=(10, 7))
     ax = fig.add_subplot(111, projection='3d')
@@ -46,15 +52,10 @@ def plot_trajectory_3d(X_traj):
     plt.tight_layout()
     plt.show()
 
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D   # noqa: F401
-
 
 def quat_to_R_body_to_nav(qw, qx, qy, qz):
     """
     Convert quaternion (qw, qx, qy, qz) to rotation matrix R_b_to_n.
-    This matches the convention used in rocket_model.py:
     q maps from body frame -> navigation (ENU) frame.
     """
     # Precompute products
@@ -78,63 +79,44 @@ def quat_to_R_body_to_nav(qw, qx, qy, qz):
 
 def plot_trajectory_3d_with_orientation_and_thrust(X_traj):
     """
-    Plot 3D rocket trajectory with:
-      - position
-      - orientation (body z-axis)
-      - thrust vector
-
-    Parameters
-    ----------
-    X_traj : np.ndarray of shape (16, N+1)
-        PSC state trajectory:
-          0..3  : quaternion [qw, qx, qy, qz]
-          4..6  : angular rates
-          7..9  : position [E, N, U]
-          10..12: velocity [vE, vN, vU]
-          13    : thrust magnitude (N)
-          14    : t_alpha
-          15    : t_beta
+    Plot 3D rocket trajectory with position, orientation, and thrust vector.
     """
 
-    # ---- Extract positions ----
-    pos_E = X_traj[7, :]   # East
-    pos_N = X_traj[8, :]   # North
-    pos_U = X_traj[9, :]   # Up
+    pos_E = X_traj[7, :]  
+    pos_N = X_traj[8, :]   
+    pos_U = X_traj[9, :]  
 
-    # ---- Extract quaternions ----
     qw = X_traj[0, :]
     qx = X_traj[1, :]
     qy = X_traj[2, :]
     qz = X_traj[3, :]
 
-    # ---- Extract thrust-related state ----
-    thrust_N = X_traj[13, :]   # thrust magnitude in Newtons
-    t_alpha  = X_traj[14, :]   # thrust deflection in x-direction
-    t_beta   = X_traj[15, :]   # thrust deflection in y-direction
+    thrust_N = X_traj[13, :]   
+    t_alpha  = X_traj[14, :]   
+    t_beta   = X_traj[15, :]  
 
     fig = plt.figure(figsize=(10, 7))
     ax = fig.add_subplot(111, projection='3d')
 
-    # ---- Plot trajectory line ----
+    # Trajectory line
     ax.plot(pos_E, pos_N, pos_U, '-o', markersize=3, linewidth=2, label='PSC Traj')
 
     # Mark start and end
     ax.scatter(pos_E[0], pos_N[0], pos_U[0], color='green', s=70, label='Start')
     ax.scatter(pos_E[-1], pos_N[-1], pos_U[-1], color='red', s=70, label='End')
 
-    # ---- Choose subset of nodes for arrows (to avoid clutter) ----
+    # Choose subset of nodes for arrows
     Np1 = X_traj.shape[1]
-    indices = np.linspace(0, Np1 - 1, num=min(15, Np1), dtype=int)
+    # indices = np.linspace(0, Np1 - 1, num=min(15, Np1), dtype=int)
+    indices = np.arange(Np1)
 
-    # Arrow lengths (visual only, units in meters-ish)
+    # Arrow lengths
     body_axis_len   = 2.0
     thrust_arrow_len = 3.0
 
     for i in indices:
-        # Rotation body -> nav
         R_b_to_n = quat_to_R_body_to_nav(qw[i], qx[i], qy[i], qz[i])
 
-        # ---- Orientation arrow: body z-axis (0,0,1)^T in body frame ----
         body_z_nav = R_b_to_n @ np.array([0.0, 0.0, 1.0])
 
         # Arrow start = current position
@@ -148,9 +130,9 @@ def plot_trajectory_3d_with_orientation_and_thrust(X_traj):
         w1 = body_axis_len * body_z_nav[2]
 
         ax.quiver(x0, y0, z0, u1, v1, w1,
-                  length=2.0, normalize=False, color='purple')
+                  length=3.0, normalize=False, color='purple')
 
-        # ---- Thrust vector arrow (scaled by magnitude) ----
+        # Thrust vector arrow
         T  = thrust_N[i]
         ta = t_alpha[i]
         tb = t_beta[i]
@@ -166,21 +148,19 @@ def plot_trajectory_3d_with_orientation_and_thrust(X_traj):
         thrust_nav = R_b_to_n @ thrust_body
 
         # Scale arrow by thrust magnitude
-        T_max = 1800.0  # based on your rocket model
-        k = 5.0         # visualization scale factor
+        T_max = 1800.0 
+        k = 5.0       
 
         arrow_len = k * (T / T_max)
 
-        # Arrow vector in nav frame (not normalized!)
+        # Arrow vector in nav frame
         u2 = arrow_len * thrust_nav[0] / (np.linalg.norm(thrust_nav) + 1e-6)
         v2 = arrow_len * thrust_nav[1] / (np.linalg.norm(thrust_nav) + 1e-6)
         w2 = arrow_len * thrust_nav[2] / (np.linalg.norm(thrust_nav) + 1e-6)
 
         ax.quiver(x0, y0, z0, u2, v2, w2,
-                length=1.0, normalize=False, color='red')
+                length=3.0, normalize=False, color='red')
 
-
-    # ---- Labels, scaling, etc. ----
     ax.set_xlabel("East (m)")
     ax.set_ylabel("North (m)")
     ax.set_zlabel("Up (m)")
@@ -207,21 +187,7 @@ def plot_trajectory_3d_with_orientation_and_thrust(X_traj):
 
 def plot_u_vs_time(U, t=None, Tf=None, title="Control inputs vs time"):
     """
-    Plot control inputs u_i(t).
-
-    Parameters
-    ----------
-    U : array-like
-        Control trajectory. Shape can be either:
-          - (nu, Np1)  (controls x time)
-          - (Np1, nu)  (time x controls)
-    t : array-like, optional
-        Time stamps for each column of U. Shape (Np1,).
-        If None, a uniform grid in [0, Tf] (or [0,1] if Tf is None) is used.
-    Tf : float, optional
-        Final time, only used if t is None. Default is 1.0.
-    title : str
-        Title for the plot.
+    Plot control inputs.
     """
     U = np.asarray(U)
     if U.ndim != 2:
@@ -231,7 +197,6 @@ def plot_u_vs_time(U, t=None, Tf=None, title="Control inputs vs time"):
     if U.shape[0] < U.shape[1]:
         nu, Np1 = U.shape
     else:
-        # assume (Np1, nu), transpose
         Np1, nu = U.shape
         U = U.T
 

@@ -3,6 +3,9 @@
   real-time.
 
   (c) Jan Zwiener (jan@zwiener.org)
+
+  Modified for MEAM 5170 final project Booster Landing Control by
+  Cody Hopkins, Zach Rudder, and Finn Maniscalco
 """
 #!/usr/bin/env python3
 
@@ -12,8 +15,7 @@ import copy
 import numpy as np
 
 from simrocketenv import SimRocketEnv
-from mpcpolicy import MPCPolicy
-from pscpolicy import PSCTVLQRPolicy
+from pscpolicy import PSCPolicy
 
 # Global messagebox to exchange data between threads
 g_thread_msgbox = {
@@ -40,9 +42,7 @@ def ctrl_thread_func(initial_state):
     # -------------------`----------
     # print("Initial state passed to PSC:", initial_state)
     
-    
-    # policy = MPCPolicy(initial_state)
-    policy = PSCTVLQRPolicy(initial_state, time_horizon=30.0, N_nodes=50, hover=False, use_tvlqr=True)
+    policy = PSCPolicy(initial_state, time_horizon=31.0, N_nodes=30, hover=False, use_tvlqr=True, debug=True)
 
     print("Active policy: %s" % (policy.get_name()))
 
@@ -54,7 +54,7 @@ def ctrl_thread_func(initial_state):
     CTRL_DT_SEC = 1.0 / 100.0  # run the control law every XX ms
     timestamp_last_ctrl_update = time.time() - 2*CTRL_DT_SEC
     ctrl_fps_counter = 0  # +1 for every step, reset every 1 sec
-    timestamp_last_mpc_fps_update = time.time()
+    timestamp_last_PSC_fps_update = time.time()
 
     while g_sim_running:
         timestamp_current = time.time()
@@ -64,10 +64,10 @@ def ctrl_thread_func(initial_state):
 
         with g_thread_msgbox_lock:
             state = copy.deepcopy(g_thread_msgbox['state'])
-            if timestamp_current - timestamp_last_mpc_fps_update >= 1.0:
+            if timestamp_current - timestamp_last_PSC_fps_update >= 1.0:
                 g_thread_msgbox['ctrl_fps'] = ctrl_fps_counter
                 ctrl_fps_counter = 0
-                timestamp_last_mpc_fps_update = timestamp_current
+                timestamp_last_PSC_fps_update = timestamp_current
 
         u, predictedX = policy.next(state)
 
@@ -91,11 +91,11 @@ def main():
     # print("Initial state from ENV:", env.state)
 
 
-    # Spawn NMPC thread (doing the control work)
-    nmpc_thread = threading.Thread(
+    # Spawn PSC thread (doing the control work)
+    psc_thread = threading.Thread(
             target=ctrl_thread_func,
             kwargs={'initial_state': g_thread_msgbox['state']})
-    nmpc_thread.start()
+    psc_thread.start()
 
     timestamp_lastupdate = time.time()
     MAX_DT_SEC = 0.1 # don't allow larger simulation timesteps than this
@@ -113,13 +113,13 @@ def main():
             time.sleep(0) # run the simulation in real-time at fixed rate
             continue
 
-        # get control vector u from NMPC thread:
+        # get control vector u from PSC thread:
         with g_thread_msgbox_lock:
             if 'u' in g_thread_msgbox:
                 u = copy.deepcopy(g_thread_msgbox['u']) # get control input
             else:
                 # control thread is not ready. wait with the simulation thread
-                # until we receive the first u vector e.g. the MPC thread needs
+                # until we receive the first u vector e.g. the PSC thread needs
                 # a bit of startup time to compile .c files until it is ready
                 continue
 
@@ -144,7 +144,7 @@ def main():
 
         # Print some stats once per second:
         if timestamp_current - last_fps_update >= 1.0 or not g_sim_running:
-            print("SIM=%4i MPC=%3i score=%i" % (sim_step_counter,
+            print("SIM=%4i PSC=%3i score=%i" % (sim_step_counter,
                                                 ctrl_fps, reward_sum), end=' ')
             last_fps_update = timestamp_current
             sim_step_counter = 0
@@ -155,15 +155,22 @@ def main():
         if done is True:
             g_sim_running = False
             print("Total reward of episode: %i" % reward_sum)
+
+            final_x = state[7]
+            final_y = state[8]
+            final_z = state[9]
+            print(f"Final rocket position (E, N, U): ({final_x:.3f}, {final_y:.3f}, {final_z:.3f})")
     
     with g_thread_msgbox_lock:
         policy = g_thread_msgbox.get('policy', None)
 
-    # if policy is not None:
-    #     policy.debug_plot_tvlqr_tracking()
+    if policy is not None:
+        policy.debug_plot_tvlqr_tracking()
+    else:
+        print("No policy found.")
 
     # Main Loop Finished. Wait for control thread to finish.
-    nmpc_thread.join()
+    psc_thread.join()
 
 if __name__ == '__main__':
     main()

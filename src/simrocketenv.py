@@ -5,6 +5,9 @@
   pybullet body frame is FORWARD (X) LEFT (Y) UP (Z)
 
   (c) Jan Zwiener (jan@zwiener.org)
+
+  Modified for MEAM 5170 final project Booster Landing Control by
+  Cody Hopkins, Zach Rudder, and Finn Maniscalco
 """
 
 import numpy as np
@@ -65,7 +68,7 @@ class SimRocketEnv(gym.Env):
         self.AIR_DENSITY = 1.225 # kg/m^3 at sea level
         self.Cd = 0.47 # Approx Cd for a cylinder
         self.mass_kg = -99999999.9 # will be loaded and updated from URDF
-        self.MIN_GROUND_DIST_M = 2.45 # shut off engine below this altitude
+        self.MIN_GROUND_DIST_M = 2.5 # shut off engine below this altitude
         # OFFSET between CoG and nozzle. Is there a way to get this from URDF?
         self.NOZZLE_OFFSET = -2.0
         self.ATT_THRUSTER_OFFSET = 2.0
@@ -155,10 +158,7 @@ class SimRocketEnv(gym.Env):
         Lx = L * (-cpsi*st*cphi + spsi*sphi)
         Ly = L * (-spsi*st*cphi - cpsi*sphi)
         Lz = L * (ct*cphi)
-        return Lx, Ly, Lz
-
-    import numpy as np
-    
+        return Lx, Ly, Lz    
 
     def random_beta_sample(self, a, b, alpha_range=(1.0, 9.0), beta_range=(1.0, 9.0)):
         """
@@ -188,7 +188,7 @@ class SimRocketEnv(gym.Env):
         else:
             self.CLIENT = p.connect(p.DIRECT)     
 
-    def reset(self, seed=1, options={}) -> float:
+    def reset(self, seed=3, options={}) -> float:
         """
         Gym interface. Reset the simulation.
         :return state (state vector), info dict.
@@ -216,7 +216,7 @@ class SimRocketEnv(gym.Env):
         self.pitch_deg = np.random.uniform(-30.0, 30.0) * self.scale_obs_space
         self.yaw_deg   = 0.0
         # Attitude quaternion (transforming from body to navigation system
-        # Careful: quaternion order: qw, qx,qy,qz (qw is the real part)
+        # quaternion order: qw, qx,qy,qz (qw is the real part)
         self.q         = quat_from_rpy(np.deg2rad(self.roll_deg),
                                        np.deg2rad(self.pitch_deg),
                                        np.deg2rad(self.yaw_deg))
@@ -247,9 +247,7 @@ class SimRocketEnv(gym.Env):
 
         self._pybullet_reset_environment()
         return self.state, {}
-
-
-
+    
     def _pybullet_reset_environment(self):
         """
         Cleanup all pybullet objects, reset and restart simulation environment.
@@ -378,21 +376,15 @@ class SimRocketEnv(gym.Env):
             curr_vel = self.vel_n
             vel_x, vel_y, vel_z = curr_vel
 
-            # print(self.model_length)
-            # print(self.roll_deg, self.pitch_deg, self.yaw_deg)
-            # print("VELOCITIES:", vel_x, vel_y, vel_z)
             Lx, Ly, Lz = self.line_projections_z_aligned(self.model_length, self.roll_deg, self.pitch_deg, self.yaw_deg)
-            # print("PROJECTIONS:", Lx, Ly, Lz)
+     
             Ax = Lx * 2.0 * self.model_avg_cyl_radius
             Ay = Ly * 2.0 * self.model_avg_cyl_radius
             Az = Lz * 2.0 * self.model_avg_cyl_radius
-            # print("AREAS:", Ax, Ay, Az)
 
             drag_x = 1/2 * self.AIR_DENSITY * self.Cd * Ax * (vel_x**2)
             drag_y = 1/2 * self.AIR_DENSITY * self.Cd * Ay * (vel_y**2)
             drag_z = 1/2 * self.AIR_DENSITY * self.Cd * Az * (vel_z**2)
-
-            # print("DRAGS:", drag_x, drag_y, drag_z)
 
             p.applyExternalForce(objectUniqueId=self.pybullet_body,
                                  linkIndex=self.pybullet_booster_index,
@@ -438,15 +430,9 @@ class SimRocketEnv(gym.Env):
             self.rand_drag_dir_pitch += rand_pitch_step
             self.rand_drag_dir_yaw += rand_yaw_step
 
-            # print("RANDOM DRAG VEL MAG:", self.rand_drag_vel_mag)
-            # print("RANDOM DRAG DIRS (roll,pitch,yaw):", self.rand_drag_dir_roll, self.rand_drag_dir_pitch, self.rand_drag_dir_yaw)
-
             p.stepSimulation(physicsClientId=self.CLIENT)
             self.pybullet_time_sec += self.PYBULLET_DT_SEC
             pybullet_dt_sec += self.PYBULLET_DT_SEC
-
-        # debug
-        # print(f"t={self.time_sec:.2f}, z={self.pos_n[2]:.2f}, engine_on={self.engine_on}, thrust_N={self.thrust_current_N:.1f}")
 
         # Draw a red line to illustrate the thrust and the thrust vectoring
         vec_line_scale = 6.0 * self.thrust_current_N / self.THRUST_MAX_N
@@ -640,7 +626,7 @@ class SimRocketEnv(gym.Env):
         velocity_magnitude = np.linalg.norm(self.vel_n)
         
         if altitude_ratio > cutoff_alt_ratio:
-            # === HIGH ALTITUDE ===
+            # HIGH ALTITUDE
             # Reward Falling, Reward SAVING fuel
             
             # Downward velocity is good (positive reward)
@@ -655,7 +641,7 @@ class SimRocketEnv(gym.Env):
             fuel_reward = MAX_FUEL_REWARD * FUEL_WEIGHT * (1.0 - fuel_used_ratio)
                     
         else:
-            # === LOW ALTITUDE ===
+            # LOW ALTITUDE
             # Reward Stopping, Reward BURNING fuel
             
             # Low velocity magnitude is good

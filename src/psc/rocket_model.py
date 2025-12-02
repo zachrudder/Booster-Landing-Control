@@ -1,4 +1,7 @@
 # (c) Jan Zwiener (jan@zwiener.org)
+#
+# Modified for MEAM 5170 final project Booster Landing Control by
+# Cody Hopkins, Zach Rudder, and Finn Maniscalco
 
 import numpy as np
 from acados_template import AcadosModel
@@ -184,8 +187,6 @@ def export_rocket_ode_model() -> AcadosModel:
 
     vel_dot = acc_thrust + acc_drag + gravity_n
 
-
-    # Core of the MPC magic
     f_expl = vertcat( -(omega_x*q_1)/2.0 - (omega_y*q_2)/2.0 - (omega_z*q_3)/2.0,
                        (omega_x*q_0)/2.0 - (omega_y*q_3)/2.0 + (omega_z*q_2)/2.0,
                        (omega_y*q_0)/2.0 + (omega_x*q_3)/2.0 - (omega_z*q_1)/2.0,
