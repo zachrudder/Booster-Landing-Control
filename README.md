@@ -1,18 +1,14 @@
 Booster Landing Control
 -----------------------
 
-Developed for UPenn MEAM 5170 Final Project by Cody Hopkins, Zach Rudder, and Finn Maniscalco. 
-This repo was adapted from the [PyRocketCraft](https://github.com/jnz/PyRocketCraft) repo by Jan Zwiener, 
-which uses model predictive control (MPC) and neural networks (NN) to land the rocket booster.
-
-
-Overview
---------
-
 This project implements a full nonlinear trajectory optimization and feedback control pipeline for a simulated rocket booster performing a soft landing.
 We use Pseudo-Spectral Collocation (PSC) to compute a globally optimal open-loop trajectory, and a Time-Varying LQR (TVLQR) controller to stabilize and 
 track that trajectory in a PyBullet simulation. The system models a rocket with 16 states (quaternion attitude, angular velocity, ENU position, linear velocity, 
 thrust magnitude, and thrust vectoring angles), and simulates the dynamics, including drag and fuel usage.
+
+Developed for UPenn MEAM 5170 Final Project by Cody Hopkins, Zach Rudder, and Finn Maniscalco. 
+This repo was adapted from the [PyRocketCraft](https://github.com/jnz/PyRocketCraft) repo by Jan Zwiener, 
+which uses model predictive control (MPC) and neural networks (NN) to land the rocket booster.
 
 
 Program structure
