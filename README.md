@@ -17,7 +17,7 @@ thrust magnitude, and thrust vectoring angles), and simulates the dynamics, incl
 
 Program structure
 -----------------
-
+```bash
 project-root/
 │
 ├── README.md
@@ -35,9 +35,9 @@ project-root/
 │   ├── psc/
 │        └── rocket_model.py   # CasADi rocket dynamics model  
 └── acados/                    # Required library (not tracked by git)
+```
 
-
-Block diagram:
+Block diagram
 --------------
 
 The main function in rocketcraft.py runs the PSC code decoupled from the
