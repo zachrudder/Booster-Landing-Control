@@ -1,60 +1,51 @@
-THIS IS A COPY OF THE PyRocketCraft REPO
+Booster Landing Control
+-----------------------
 
-PyRocketCraft
--------------
+Developed for UPenn MEAM 5170 Final Project by Cody Hopkins, Zach Rudder, and Finn Maniscalco. 
+This repo was adapted from the [PyRocketCraft](https://github.com/jnz/PyRocketCraft) repo by Jan Zwiener, 
+which uses model predictive control (MPC) and neural networks (NN) to land the rocket booster.
 
-Control and land a rocket via deep learning or non-linear model predictive
-control (NMPC) in a 3D physics environment (using the pybullet engine).  The
-non-linear MPC controller is using the acados library. The neural network parts
-are using pytorch.
 
-Mail: jan@zwiener.org
+Overview
+--------
 
-![LOGO](img/pyrocketcraft.png)
+This project implements a full nonlinear trajectory optimization and feedback control pipeline for a simulated rocket booster performing a soft landing.
+We use Pseudo-Spectral Collocation (PSC) to compute a globally optimal open-loop trajectory, and a Time-Varying LQR (TVLQR) controller to stabilize and 
+track that trajectory in a PyBullet simulation. The system models a rocket with 16 states (quaternion attitude, angular velocity, ENU position, linear velocity, 
+thrust magnitude, and thrust vectoring angles), and simulates the dynamics, including drag and fuel usage.
 
-Run the program with
-
-```sh
-(source env.sh; ./src/rocketcraft.py)
-```
-
-![MOVIE](img/compare.gif)
-
-Installation on Linux and macOS
--------------------------------
-
-Run `./setup`
 
 Program structure
 -----------------
 
-    .
-    ├── env.sh                      Setting up the env if coming back
-    ├── torch_nn_mpc-rocket-vX.pth  Trained network to imitate NMPC
-    ├── setup                       Setting up the project for first use
-    ├── src/expert_collect.py       Generate data for training
-    ├── src/expert_train.py         Train the neural network
-    ├── src/geodetic_toolbox.py     Helper functions
-    ├── src/modelrocket.urdf        Pybullet visualization and physics definition of the rocket
-    ├── src/mpc
-    │   └── rocket_model.py         NMPC model and system dynamics definition
-    ├── src/nnpolicy.py             Neural Network Controller
-    ├── src/mpcpolicy.py            Model Predictive Control Module
-    ├── src/rocketcraft.py          main entry point of application
-    └── src/simrocketenv.py         Physics simulation with gym interface, using pybullet
+project-root/
+│
+├── README.md
+├── pyproject.toml             # Dependencies
+│
+├── src/
+│   ├── rocketcraft.py         # Main entry point (run this file)
+│   ├── pscpolicy.py           # PSC trajectory optimizer + TVLQR controller
+│   ├── basecontrol.py         # Base controller interface  
+│   ├── simrocketenv.py        # Physics simulation with gym interface, using pybullet
+│   ├── geodetic_toolbox.py    # Helper functions
+│   ├── psc_offline_test.py    # Script to solve PSC trajectory offline without sim
+│   ├── psc_plot_trajectory.py # Functions to plot PSC trajectory
+│   ├── modelrocket.urdf       # URDF of the rocket
+│   ├── psc/
+│        └── rocket_model.py   # CasADi rocket dynamics model  
+└── acados/                    # Required library (not tracked by git)
+
 
 Block diagram:
 --------------
 
-The main function in rocketcraft.py runs the NMPC code decoupled from the
+The main function in rocketcraft.py runs the PSC code decoupled from the
 physics simulation in a thread. The simulation part is in the simrocketenv file
 that is using the OpenAI gym / Gymnasium interface and using pybullet in the
 background for the heavy lifting of the physics simulation incl. collision
 detection.
-The `ctrl_thread_func` will either call the MPCPolicy.py OR the NNPolicy.py.
-So either the rocket is controlled by a model predictive control algorithm or
-a neural network.
-
+The `ctrl_thread_func` will call the PSCPolicy.py.
 
     ┌───────────────────┐
     │  rocketcraft.py   │
@@ -73,53 +64,111 @@ a neural network.
     │                   │
     │ Controller Thread │ 'state' >
     │ ctrl_thread_func()│ < 'u'  ┌─────────────────┐       ┌─────────────────┐
-    │                   │◄───┬──►│ MPCPolicy.py    │◄────► │ rocketmodel.py  │
-    │                   │    │   │ --------------  │       │ --------------  │
-    └───────────────────┘    │   │                 │       │                 │
-                           or│   │ NMPC controller │       │ NMPC model and  │
-                             │   │ u = next(state) │       │ dynamics        │
-                             │   └─────────────────┘       └───┬─────────────┘
-                             │   ┌─────────────────┐           │   ┌────────────────┐
-                             └──►│ NNPolicy.py     │           └─► │ acados         │
-                                 │ --------------  │               │ ------         │
-                                 │                 │               │                │
-                                 │ Neural network  │               │ Auto generated │
-                                 │ u = next(state) │               │ C-code         │
-                                 └─────────────────┘               └────────────────┘
+    │                   │◄───-──►│ PSCPolicy.py    │◄────► │ rocket_model.py │
+    │                   │        │ --------------  │       │ --------------  │
+    └───────────────────┘        │                 │       │                 │
+                                 │ PSC controller  │       │ Model and       │
+                                 │ u = next(state) │       │ dynamics        │
+                                 └─────────────────┘       └───┬─────────────┘
+                                                               │   ┌────────────────┐
+                                                               └─► │ acados         │
+                                                                   │ ------         │
+                                                                   │                │
+                                                                   │ Auto generated │
+                                                                   │ C-code         │
+                                                                   └────────────────┘
 
 
-Neural Network and Model Predictive Control
--------------------------------------------
+Installation on Linux and macOS
+-------------------------------
 
-Different control policies are available:
+## 1. Install Prerequisites
+- Git  
+- C/C++ toolchain:
+  - macOS: `xcode-select --install`
+  - Linux: `sudo apt install build-essential`
+- Conda (Miniforge recommended)
 
- - NNPolicy
- - MPCPolicy
+Verify installation:
 
-Switch between the policies in rocketcraft.py:
+```
+conda --version
+```
 
-    # policy = MPCPolicy(initial_state)
-    policy = NNPolicy()
+## 2. Clone Repository + Initialize Submodules
 
-Run:
+```bash
+git clone <REPO_URL>
+cd Booster-Landing-Control
+git submodule update --init --recursive
+```
 
-    python3 src/expert_collect.py
+## 3. Create Conda Environment
 
-This will write a `expert_data.json` file with training data (state vector, control input
-(u) pairs, etc.). Then a new policy can be trained with this data:
+```bash
+conda create -n rocket python=3.9
+conda activate rocket
+```
 
-    python3 src/expert_train.py
+## 4. Install Core Python Dependencies
 
-This will train a neural network based on the MPC data and generate a
-`torch_nn_mpc-rocket-vX.pth` file that can be used by the NNPolicy class.
+```bash
+conda install -c conda-forge pybullet gymnasium numpy scipy pytorch stable-baselines3
+```
 
-Model Predictive Control
-------------------------
+## 5. Build acados
 
-The core "magic" of the model predictive control is located in the
-`src/mpc/rocket_model.py` file. Here the system dynamics are being described.
-The heavy lifting of solving the MPC problem is performed by the awesome acados
-library.
+```bash
+cd acados
+cmake -DACADOS_WITH_QPOASES=OFF .
+make install -j4
+cd ..
+```
+
+## 6. Install Project (Editable Mode)
+
+```bash
+pip install -e . --no-deps
+pip install -e acados/interfaces/acados_template
+```
+
+## 7. Set Environment Variables for acados
+
+### macOS
+```bash
+export ACADOS_SOURCE_DIR=/path/to/Booster-Landing-Control/acados
+export DYLD_LIBRARY_PATH=$ACADOS_SOURCE_DIR/lib:$DYLD_LIBRARY_PATH
+```
+
+### Linux
+```bash
+export ACADOS_SOURCE_DIR=/path/to/Booster-Landing-Control/acados
+export LD_LIBRARY_PATH=$ACADOS_SOURCE_DIR/lib:$LD_LIBRARY_PATH
+```
+
+Add to your shell config (`~/.zshrc` or `~/.bashrc`) and reload:
+
+```bash
+source ~/.zshrc
+```
+
+
+Running the Simulation
+----------------------
+
+Run it from the project root:
+
+```bash
+python src/rocketcraft.py
+```
+
+This will:
+1. Load the PyBullet rocket environment  
+2. Build the PSC nonlinear program  
+3. Solve the trajectory using IPOPT  
+4. Build TVLQR gains  
+5. Execute the closed-loop simulation  
+
 
 Coordinate Frames
 -----------------
@@ -128,8 +177,3 @@ pybullet is using:
 
  - World Frame (enu) East/North/Up(ENU): X = East, Y = North, Z = Up
  - Body Frame (rosbody), X = Forward, Y = Left, Z = Up
-
-Info
-----
-
-2023-2024 Jan Zwiener. Free to use for academic research if this work is cited and linked. Contact author for commercial use.
