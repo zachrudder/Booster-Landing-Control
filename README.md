@@ -11,6 +11,12 @@ This repo was adapted from the [PyRocketCraft](https://github.com/jnz/PyRocketCr
 which uses model predictive control (MPC) and neural networks (NN) to land the rocket booster.
 
 
+Video Results
+-------------
+
+[Video](https://drive.google.com/file/d/1YnrYySE4lE0ghlyqdByM1XHGLRvrro5Q/view?usp=sharing)
+
+
 Program structure
 -----------------
 ```bash
