@@ -42,7 +42,6 @@ def ctrl_thread_func(initial_state):
         initial_state, 
         time_horizon=31.0, 
         N_nodes=30, 
-        hover=False, 
         use_tvlqr=True, 
         debug=False
     )

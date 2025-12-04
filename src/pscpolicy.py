@@ -99,7 +99,6 @@ class PSCPolicy(BaseControl):
         initial_state: np.ndarray,
         time_horizon: float = 30.0,
         N_nodes: int = 30,
-        hover: bool = False,
         use_tvlqr: bool = False,
         debug: bool = False,
     ) -> None:
@@ -149,15 +148,10 @@ class PSCPolicy(BaseControl):
 
         # Set the reference state (goal)
         self.x0 = np.asarray(initial_state).flatten()
-        if not hover:
-            x_ref = np.zeros(self.nx)
-            x_ref[0] = 1.0  # upright
-            x_ref[9] = 0.5  # altitude  
-            self.x_ref = x_ref
-        else:
-            # Hover test
-            self.x_ref = self.x0.copy()
-            self.x_ref[0] = 1.0 
+        x_ref = np.zeros(self.nx)
+        x_ref[0] = 1.0  # upright
+        x_ref[9] = 0.5  # altitude  
+        self.x_ref = x_ref
 
         if self.debug:
             # Print initial state and reference / goal state for PSC
@@ -182,19 +176,8 @@ class PSCPolicy(BaseControl):
 
 
         # Set control reference
-        if not hover:
-            self.u_ref = np.zeros(self.nu)
-        else:
-            # Approximate thrust for hover
-            THRUST_MAX_N = 1800.0
-            MASS_KG = 91.0         
-            GRAVITY = 9.81
-
-            u_hover = (MASS_KG * GRAVITY) / THRUST_MAX_N 
-
-            self.u_ref = np.zeros(self.nu)
-            self.u_ref[0] = u_hover 
-
+        self.u_ref = np.zeros(self.nu)
+        
         # Control input cost weights
         self.R = np.diag([90.0, 750.0, 750.0, 1000.0, 1000.0])
 
@@ -216,7 +199,7 @@ class PSCPolicy(BaseControl):
 
         self.Q[10, 10] = 5.1            # vel E
         self.Q[11, 11] = 5.1            # vel N
-        self.Q[12, 12] = 32.0           # vel U
+        self.Q[12, 12] = 33.0           # vel U
 
         # self.Q[13, 13] = 0.0           # thrust
         # self.Q[14, 14] = 0.0           # thrust alpha

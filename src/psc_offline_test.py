@@ -16,7 +16,7 @@ def run_offline_psc_test():
     env = SimRocketEnv(interactive=False)
     state = env.state.copy()
 
-    policy = PSCPolicy(state, time_horizon=31.0, N_nodes=30, hover=False, use_tvlqr=True, debug=True)
+    policy = PSCPolicy(state, time_horizon=20.0, N_nodes=20, use_tvlqr=True, debug=True)
 
     T = policy.Tf
     U_opt = policy.U_opt
