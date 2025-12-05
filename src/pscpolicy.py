@@ -205,22 +205,22 @@ class PSCPolicy(BaseControl):
         # self.Q[14, 14] = 0.0           # thrust alpha
         # self.Q[15, 15] = 0.0           # thrust beta
 
-        # --- Logging for analysis ---
-        self.log_t = []              # time stamps
-        self.log_idx = []            # PSC node indices
-        self.log_x_actual = []       # actual state from env
-        self.log_x_nom = []          # nominal state from PSC
-        self.log_u_total = []        # control actually sent to env
-        self.log_u_nom = []          # nominal PSC control
-        self.log_x_err_norm = []     # ||x - x_nom||
-        self.log_delta_u_norm = []   # ||u - u_nom|| (LQR correction)
+        # Logging for analysis
+        self.log_t = []             
+        self.log_idx = []           
+        self.log_x_actual = []       
+        self.log_x_nom = []         
+        self.log_u_total = []       
+        self.log_u_nom = []         
+        self.log_x_err_norm = []    
+        self.log_delta_u_norm = []   
         
         self.start_time = time.time()
 
-        # Build the PSC NLP in CasADi
+        # Build the PSC NLP in Casadi
         self._build_psc_nlp(initial_state)
 
-        # Solve NLP (offline)
+        # Solve NLP offline
         self._solve_nlp()
 
         self.solve_time = time.time() - self.start_time
